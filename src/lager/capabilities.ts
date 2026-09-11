@@ -19,6 +19,8 @@ export const CAPABILITIES: Capability[] = [
   { tool: 'lager_ansvarlig_perioder', write: false, summary: 'Lageransvarlig: lejeperioder pr. enhed eller i et vindue.', examples: ['lejeperioder i august for OMM-00012'] },
   { tool: 'lager_ansvarlig_afregninger', write: false, summary: 'Lageransvarlig: afregninger OMM → køber, eller én afregning pr. sag.', examples: ['status på septembers afregning'] },
   { tool: 'lager_ansvarlig_koe', write: false, summary: 'Lageransvarlig: ukendte mærker, karantæne, klargøring, afstemning.', examples: ['hvad står i karantæne'] },
+  { tool: 'lager_saet', write: false, summary: 'Et sæts indhold: dele med/uden for sættet, pakkeliste, hvad der mangler.', examples: ['hvad er der i kasse OMM-00031', 'mangler der noget i sættet'] },
+  { tool: 'lager_ansvarlig_pladser', write: false, summary: 'Lageransvarlig: zoner, reoler og hylder (Zone-Reol-Hylde) og de særlige zoner.', examples: ['hvilke pladser er der i zone A', 'hvad står i karantæne-zonen'] },
   { tool: 'lager_tjek_ud', write: true, summary: 'Tag værktøj med ud til et projekt (koder = tags).', examples: ['tag OMM-00012 og OMM-00013 med til sag 2602'] },
   { tool: 'lager_aflever', write: true, summary: 'Aflevér værktøj; svaret siger hvor det skal stå.', examples: ['aflever OMM-00012'] },
   { tool: 'lager_flyt_projekt', write: true, summary: 'Flyt udlejet værktøj til et andet projekt uden om lageret.', examples: ['flyt alt mit fra Nørrebro til Valby'] },
@@ -27,6 +29,7 @@ export const CAPABILITIES: Capability[] = [
   { tool: 'lager_bestilling_hent', write: true, summary: 'Afhent en klar bestilling: udtaget koster på sagen.', examples: ['jeg henter bestilling 17'] },
   { tool: 'lager_bestilling_fortryd', write: true, summary: 'Fortryd en bestilling, indtil den er klar.', examples: ['fortryd bestilling 17'] },
   { tool: 'lager_ansvarlig_modtag_levering', write: true, summary: 'Lageransvarlig: modtag en levering; bestilte varer lægges til side til dem, der venter.', examples: ['modtag 10 filtre på faktura FA541127'] },
+  { tool: 'lager_ansvarlig_saet_paa_plads', write: true, summary: 'Lageransvarlig: sæt enheder på en plads (hjemmeplads), fx A-12-3; reglerne for asbest og karantæne gælder.', examples: ['sæt OMM-00012 på A-12-3'] },
   { tool: 'lager_ansvarlig_send_bestillingsliste', write: true, summary: 'Lageransvarlig: send bestillingslisten for én leverandør til indkøb.', examples: ['send listen til STARK'] },
 ];
 
