@@ -1,0 +1,31 @@
+{
+  "name": "mcp-server-lager",
+  "version": "0.1.0",
+  "description": "MCP server for Borgels Lager (værktøjslageret i bcc): opslag, ud og ind, projektskifte, forbrugsvarer, bestillinger, og den lageransvarliges modeller, enheder, beholdning, perioder og afregninger.",
+  "type": "module",
+  "main": "./dist/stdio.js",
+  "bin": { "mcp-server-lager": "./dist/stdio.js" },
+  "files": ["dist", "README.md", "LICENSE", ".env.example"],
+  "scripts": {
+    "build": "tsup src/transports/stdio.ts src/transports/http.ts --format esm --dts --clean --sourcemap",
+    "dev": "tsx src/transports/stdio.ts",
+    "dev:http": "tsx src/transports/http.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepare": "npm run build"
+  },
+  "repository": { "type": "git", "url": "https://github.com/borgels/mcp-server-lager.git" },
+  "license": "Apache-2.0",
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "tsup": "^8.5.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}
