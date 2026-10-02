@@ -8,7 +8,7 @@ import { searchCapabilities } from '../lager/capabilities.js';
 
 const lagerId = z.number().int().optional().describe('Lager-id. Udelades, når du kun har adgang til ét lager (se lager_me).');
 const projektId = z.number().int().describe('Projektets id (se lager_projekter).');
-const koder = z.array(z.string().min(1)).min(1).describe('Mærker (tags, fx OMM-00012) eller serienumre.');
+const koder = z.array(z.string().min(1)).min(1).describe('Mærker (tags, fx T-00012) eller serienumre.');
 type Input = Record<string, unknown>;
 type Fn = (input: Input) => Promise<unknown>;
 const num = (v: unknown): number | undefined => (v == null ? undefined : Number(v));

@@ -8,7 +8,7 @@ import { CAPABILITIES } from '../src/lager/capabilities.js';
 const svar = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 async function forbind(fetchFn: typeof fetch) {
-  const server = createServer({ client: new LagerClient({ baseUrl: 'https://bcc.test', apiToken: 'tok', user: 'worker@example.com', fetchFn }) });
+  const server = createServer({ client: new LagerClient({ baseUrl: 'https://lager.test', apiToken: 'tok', user: 'worker@example.com', fetchFn }) });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
   const client = new Client({ name: 'test', version: '0' });
@@ -26,7 +26,7 @@ describe('tools', () => {
     expect(navne).toEqual(CAPABILITIES.map((c) => c.tool).sort());
   });
 
-  it('læser gennem bcc med brugeren på', async () => {
+  it('læser gennem appen med brugeren på', async () => {
     const fetchFn = vi.fn(async () => svar(200, { antal: 2, projekter: [] }));
     const client = await forbind(fetchFn as unknown as typeof fetch);
     const r = await client.callTool({ name: 'lager_mine', arguments: {} });
@@ -37,22 +37,22 @@ describe('tools', () => {
     expect((init.headers as Record<string, string>)['X-MCP-User']).toBe('worker@example.com');
   });
 
-  it('afviser skrivning, når writes er slået fra, og kalder ikke bcc', async () => {
+  it('afviser skrivning, når writes er slået fra, og kalder ikke appen', async () => {
     const fetchFn = vi.fn();
     const client = await forbind(fetchFn as unknown as typeof fetch);
-    const r = await client.callTool({ name: 'lager_flyt_projekt', arguments: { koder: ['OMM-00001'], projektId: 7 } });
+    const r = await client.callTool({ name: 'lager_flyt_projekt', arguments: { koder: ['T-00001'], projektId: 7 } });
     expect(r.isError).toBe(true);
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  it('skriver, når writes er slået til, og giver bcc\'s fejl videre', async () => {
+  it('skriver, når writes er slået til, og giver appens fejl videre', async () => {
     process.env.LAGER_ENABLE_WRITES = 'true';
     const fetchFn = vi.fn(async () => svar(409, { error: 'Står allerede på det projekt' }));
     const client = await forbind(fetchFn as unknown as typeof fetch);
-    const r = await client.callTool({ name: 'lager_flyt_projekt', arguments: { koder: ['OMM-00001'], projektId: 7 } });
+    const r = await client.callTool({ name: 'lager_flyt_projekt', arguments: { koder: ['T-00001'], projektId: 7 } });
     expect(r.isError).toBe(true);
     expect((r.content as { text: string }[])[0]!.text).toContain('Står allerede på det projekt (HTTP 409)');
     const [, init] = fetchFn.mock.calls[0] as unknown as [URL, RequestInit];
-    expect(JSON.parse(String(init.body))).toEqual({ koder: ['OMM-00001'], projektId: 7 });
+    expect(JSON.parse(String(init.body))).toEqual({ koder: ['T-00001'], projektId: 7 });
   });
 });
