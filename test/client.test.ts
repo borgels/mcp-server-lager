@@ -6,13 +6,13 @@ const svar = (status: number, body: unknown) => new Response(JSON.stringify(body
 describe('LagerClient', () => {
   it('sender internt token, brugeren og en idempotensnøgle på skrivninger', async () => {
     const fetchFn = vi.fn(async () => svar(201, { ok: true }));
-    const c = new LagerClient({ baseUrl: 'https://bcc.test/', apiToken: 'tok', user: 'jens@onedanmark.dk', fetchFn: fetchFn as unknown as typeof fetch });
+    const c = new LagerClient({ baseUrl: 'https://bcc.test/', apiToken: 'tok', user: 'worker@example.com', fetchFn: fetchFn as unknown as typeof fetch });
     await c.post('/flyt', { koder: ['OMM-00001'], projektId: 7 });
     const [url, init] = fetchFn.mock.calls[0] as unknown as [URL, RequestInit];
     expect(url.toString()).toBe('https://bcc.test/api/lager/flyt');
     const h = init.headers as Record<string, string>;
     expect(h.Authorization).toBe('Bearer tok');
-    expect(h['X-MCP-User']).toBe('jens@onedanmark.dk');
+    expect(h['X-MCP-User']).toBe('worker@example.com');
     expect(h['Idempotency-Key']).toMatch(/^mcp-/);
     expect(init.method).toBe('POST');
   });

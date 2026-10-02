@@ -8,7 +8,7 @@ import { CAPABILITIES } from '../src/lager/capabilities.js';
 const svar = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 async function forbind(fetchFn: typeof fetch) {
-  const server = createServer({ client: new LagerClient({ baseUrl: 'https://bcc.test', apiToken: 'tok', user: 'jens@onedanmark.dk', fetchFn }) });
+  const server = createServer({ client: new LagerClient({ baseUrl: 'https://bcc.test', apiToken: 'tok', user: 'worker@example.com', fetchFn }) });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
   const client = new Client({ name: 'test', version: '0' });
@@ -34,7 +34,7 @@ describe('tools', () => {
     expect(JSON.parse((r.content as { text: string }[])[0]!.text)).toEqual({ antal: 2, projekter: [] });
     const [url, init] = fetchFn.mock.calls[0] as unknown as [URL, RequestInit];
     expect(url.pathname).toBe('/api/lager/mine');
-    expect((init.headers as Record<string, string>)['X-MCP-User']).toBe('jens@onedanmark.dk');
+    expect((init.headers as Record<string, string>)['X-MCP-User']).toBe('worker@example.com');
   });
 
   it('afviser skrivning, når writes er slået fra, og kalder ikke bcc', async () => {
