@@ -1,6 +1,6 @@
 /**
- * Klient mod bcc's lager-API (/api/lager/*). Identiteten er brugerens UPN i
- * X-MCP-User, verificeret af gatewayen; bcc slår personen op og bruger hendes
+ * Klient mod lager-appens API (/api/lager/*). Identiteten er brugerens UPN i
+ * X-MCP-User, verificeret af gatewayen; appen slår personen op og bruger hendes
  * egne roller, så kostpriser og ansvarlig-ruter følger rollen, ikke serveren.
  */
 export interface LagerClientOptions {
@@ -64,7 +64,7 @@ export class LagerClient {
     };
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';
-      // Hver skrivning får sin egen nøgle: bcc gør det samme kald to gange til ét resultat.
+      // Hver skrivning får sin egen nøgle: appen gør det samme kald to gange til ét resultat.
       headers['Idempotency-Key'] = `mcp-${crypto.randomUUID()}`;
     }
     const res = await this.fetchFn(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(this.timeoutMs) });

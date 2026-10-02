@@ -1,7 +1,7 @@
 {
   "name": "mcp-server-lager",
   "version": "0.1.0",
-  "description": "MCP server for Borgels Lager (værktøjslageret i bcc): opslag, ud og ind, projektskifte, forbrugsvarer, bestillinger, og den lageransvarliges modeller, enheder, beholdning, perioder og afregninger.",
+  "description": "MCP server for et værktøjslager: opslag, ud og ind, projektskifte, forbrugsvarer, bestillinger, og den lageransvarliges modeller, enheder, beholdning, perioder og afregninger.",
   "type": "module",
   "main": "./dist/stdio.js",
   "bin": { "mcp-server-lager": "./dist/stdio.js" },
