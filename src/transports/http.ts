@@ -10,8 +10,16 @@ import {
   readJsonBody,
   sendJson,
 } from './http-helpers.js';
+import { assertHttpStartupConfig } from './startup.js';
 
 const config = getHttpConfig();
+
+try {
+  assertHttpStartupConfig(config);
+} catch (error) {
+  console.error(`FATAL: ${(error as Error).message}`);
+  process.exit(1);
+}
 
 const httpServer = createNodeServer(async (req, res) => {
   try {
@@ -36,10 +44,10 @@ const httpServer = createNodeServer(async (req, res) => {
     assertAuthorized(req, config);
     const body = await readJsonBody(req, config.maxBodyBytes);
     // Brugeren: bag gatewayen fra X-MCP-User (verificeret dér), ellers LAGER_DEFAULT_USER.
-    const trust = process.env.LAGER_TRUST_FORWARDED_USER === 'true';
-    const forwarded = trust ? req.headers['x-mcp-user'] : undefined;
+    // HTTP kræver LAGER_TRUST_FORWARDED_USER=true (tjekket ved opstart); ingen fallback til LAGER_DEFAULT_USER.
+    const forwarded = req.headers['x-mcp-user'];
     const user = typeof forwarded === 'string' && forwarded.trim() ? forwarded.trim() : undefined;
-    if (trust && !user) throw new HttpRequestError(401, 'X-MCP-User mangler');
+    if (!user) throw new HttpRequestError(401, 'X-MCP-User mangler');
     const mcpServer = createMcpServer({ clientOptions: { user } });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
