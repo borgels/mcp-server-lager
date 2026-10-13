@@ -34,6 +34,7 @@ export class LagerClient {
     this.timeoutMs = options.timeoutMs ?? Number(process.env.LAGER_TIMEOUT_MS ?? 30_000);
     this.fetchFn = options.fetchFn ?? fetch;
     if (!this.baseUrl) throw new Error('LAGER_BASE_URL mangler');
+    assertSafeBaseUrl(this.baseUrl);
     if (!this.apiToken) throw new Error('LAGER_API_TOKEN mangler');
     if (!this.user) throw new Error('Ingen bruger: X-MCP-User fra gatewayen eller LAGER_DEFAULT_USER');
   }
@@ -77,4 +78,17 @@ export class LagerClient {
     }
     return data as T;
   }
+}
+
+/** API-tokenet og brugeridentiteten må kun sendes over https (loopback http er tilladt til lokale mocks). */
+function assertSafeBaseUrl(baseUrl: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new Error(`LAGER_BASE_URL er ikke en gyldig URL: ${baseUrl}`);
+  }
+  if (parsed.protocol === 'https:') return;
+  if (parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]', '::1'].includes(parsed.hostname)) return;
+  throw new Error(`LAGER_BASE_URL skal bruge https:// (http:// kun mod loopback); fik ${parsed.protocol}//${parsed.host}`);
 }

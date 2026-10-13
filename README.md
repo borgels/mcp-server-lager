@@ -18,6 +18,13 @@ Bag en autentificerende MCP-gateway er brugeren verificeret af Entra og medlem a
 
 Se `.env.example`. Påkrævet: `LAGER_BASE_URL`, `LAGER_API_TOKEN`, og en bruger (`LAGER_TRUST_FORWARDED_USER=true` bag gatewayen, ellers `LAGER_DEFAULT_USER`).
 
+Sikkerhed:
+
+- HTTP-transporten starter kun med `LAGER_TRUST_FORWARDED_USER=true` **og** `MCP_HTTP_TOKEN` sat; brugeren kommer altid fra `X-MCP-User`. `LAGER_DEFAULT_USER` bruges kun af stdio.
+- `MCP_HTTP_TOKEN` sammenlignes i konstant tid.
+- `LAGER_BASE_URL` skal være `https://` (http:// kun mod loopback til lokale mocks).
+- Mærker/tags i URL-stier afvises, hvis de er tomme, `.`/`..` eller indeholder `/`, `\`, `?`, `#` eller kodede punktummer/skråstreger.
+
 ## Kør
 
 ```bash
