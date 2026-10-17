@@ -7,15 +7,18 @@ import {
   corsHeaders,
   getHttpConfig,
   HttpRequestError,
+  isBackendReachable,
   readJsonBody,
   sendJson,
 } from './http-helpers.js';
-import { assertHttpStartupConfig } from './startup.js';
+import { assertHttpStartupConfig, assertLagerBaseUrl } from './startup.js';
 
 const config = getHttpConfig();
+let baseUrl: string;
 
 try {
   assertHttpStartupConfig(config);
+  baseUrl = assertLagerBaseUrl();
 } catch (error) {
   console.error(`FATAL: ${(error as Error).message}`);
   process.exit(1);
@@ -23,6 +26,17 @@ try {
 
 const httpServer = createNodeServer(async (req, res) => {
   try {
+    // /healthz: processen kører. /readyz: lager-appen kan også nås.
+    if (req.method === 'GET' && req.url === '/healthz') {
+      sendJson(res, 200, { status: 'ok' });
+      return;
+    }
+    if (req.method === 'GET' && req.url === '/readyz') {
+      const ok = await isBackendReachable(baseUrl);
+      sendJson(res, ok ? 200 : 503, { status: ok ? 'ok' : 'lager-appen kan ikke nås' });
+      return;
+    }
+
     if (req.url !== '/mcp') {
       sendJson(res, 404, { error: 'Not found' }, req);
       return;

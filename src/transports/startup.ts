@@ -1,3 +1,4 @@
+import { assertSafeBaseUrl } from '../lager/client.js';
 import { assertForwardedUserRequiresToken, type HttpConfig } from './http-helpers.js';
 
 /**
@@ -19,4 +20,15 @@ export function assertHttpStartupConfig(
     );
   }
   assertForwardedUserRequiresToken(['LAGER_TRUST_FORWARDED_USER'], config, env);
+}
+
+/**
+ * LagerClient bygges pr. request, så en ugyldig LAGER_BASE_URL ville først vise sig
+ * som 500 på hvert kald. Tjek den én gang ved opstart i stedet.
+ */
+export function assertLagerBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const baseUrl = (env.LAGER_BASE_URL ?? '').replace(/\/+$/, '');
+  if (!baseUrl) throw new Error('LAGER_BASE_URL mangler');
+  assertSafeBaseUrl(baseUrl, env);
+  return baseUrl;
 }
