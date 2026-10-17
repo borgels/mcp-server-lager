@@ -22,7 +22,7 @@ Sikkerhed:
 
 - HTTP-transporten starter kun med `LAGER_TRUST_FORWARDED_USER=true` **og** `MCP_HTTP_TOKEN` sat; brugeren kommer altid fra `X-MCP-User`. `LAGER_DEFAULT_USER` bruges kun af stdio.
 - `MCP_HTTP_TOKEN` sammenlignes i konstant tid.
-- `LAGER_BASE_URL` skal være `https://` (http:// kun mod loopback til lokale mocks).
+- `LAGER_BASE_URL` skal være `https://`. http:// er kun tilladt mod loopback (lokale mocks) og mod værter, der står eksplicit i `LAGER_INTERNAL_HOSTS` (kommasepareret, eksakt værtsnavn, ingen wildcards), fx backendens containernavn på et internt Docker-netværk. URL'en tjekkes ved opstart; HTTP-transporten nægter at starte med en ugyldig værdi.
 - Mærker/tags i URL-stier afvises, hvis de er tomme, `.`/`..` eller indeholder `/`, `\`, `?`, `#` eller kodede punktummer/skråstreger.
 
 ## Kør
@@ -33,5 +33,7 @@ npm run dev          # stdio
 npm run dev:http     # streamable HTTP på :3000/mcp (stateless)
 npm test
 ```
+
+HTTP-transporten svarer også på `GET /healthz` (processen kører, altid 200) og `GET /readyz` (200 hvis lager-appen svarer på et uautentificeret GET, ellers 503). Ingen af dem kræver token.
 
 Docker-image: `ghcr.io/borgels/mcp-server-lager` (publiceres ved push til `main`).

@@ -80,8 +80,23 @@ export class LagerClient {
   }
 }
 
-/** API-tokenet og brugeridentiteten må kun sendes over https (loopback http er tilladt til lokale mocks). */
-function assertSafeBaseUrl(baseUrl: string): void {
+/** Værter, der altid må nås over http: loopback til lokale mocks. */
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]', '::1'];
+
+/** LAGER_INTERNAL_HOSTS: kommaseparerede værtsnavne på et privat (Docker-)netværk, eksakt match, ingen wildcards. */
+export function internalHosts(env: NodeJS.ProcessEnv = process.env): string[] {
+  return (env.LAGER_INTERNAL_HOSTS ?? '')
+    .split(',')
+    .map(h => h.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * API-tokenet og brugeridentiteten må kun sendes over https. http:// er tilladt mod
+ * loopback (lokale mocks) og mod værter, der står eksplicit i LAGER_INTERNAL_HOSTS,
+ * fx backendens containernavn på det interne Docker-netværk.
+ */
+export function assertSafeBaseUrl(baseUrl: string, env: NodeJS.ProcessEnv = process.env): void {
   let parsed: URL;
   try {
     parsed = new URL(baseUrl);
@@ -89,6 +104,8 @@ function assertSafeBaseUrl(baseUrl: string): void {
     throw new Error(`LAGER_BASE_URL er ikke en gyldig URL: ${baseUrl}`);
   }
   if (parsed.protocol === 'https:') return;
-  if (parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]', '::1'].includes(parsed.hostname)) return;
-  throw new Error(`LAGER_BASE_URL skal bruge https:// (http:// kun mod loopback); fik ${parsed.protocol}//${parsed.host}`);
+  if (parsed.protocol === 'http:' && [...LOOPBACK_HOSTS, ...internalHosts(env)].includes(parsed.hostname)) return;
+  throw new Error(
+    `LAGER_BASE_URL skal bruge https:// (http:// kun mod loopback eller en vært i LAGER_INTERNAL_HOSTS); fik ${parsed.protocol}//${parsed.host}`,
+  );
 }

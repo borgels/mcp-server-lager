@@ -65,6 +65,27 @@ export function assertForwardedUserRequiresToken(
   }
 }
 
+/**
+ * Readiness: kan lager-appen nås? Et uautentificeret GET mod OpenAPI-beskrivelsen;
+ * ethvert HTTP-svar (også 401/404) tæller som nået. Tokenet sendes ikke med.
+ */
+export async function isBackendReachable(
+  baseUrl: string,
+  fetchFn: typeof fetch = fetch,
+  timeoutMs = 5_000,
+): Promise<boolean> {
+  try {
+    const res = await fetchFn(new URL(`${baseUrl}/api/lager/openapi.json`), {
+      method: 'GET',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    await res.body?.cancel();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function assertAllowedOrigin(req: IncomingMessage): void {
   if (!isOriginAllowed(req.headers.origin)) {
     throw new HttpRequestError(403, 'Origin not allowed');
