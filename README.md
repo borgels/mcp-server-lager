@@ -36,4 +36,8 @@ npm test
 
 HTTP-transporten svarer også på `GET /healthz` (processen kører, altid 200) og `GET /readyz` (200 hvis lager-appen svarer på et uautentificeret GET, ellers 503). Ingen af dem kræver token.
 
-Docker-image: `ghcr.io/borgels/mcp-server-lager` (publiceres ved push til `main`).
+Docker-image: `ghcr.io/borgels/mcp-server-lager` (publiceres ved push til `main` og genbygges uden cache hver mandag). Tags:
+
+- `<ååååmmdd>-<nr>-<sha7>`: hvert build, også genbygningen. Unikt og sorterbart; pin dette for at få rettelser i basis-imaget med.
+- `<sha>`: commit'ens første build. Genbygningen skriver ikke over det.
+- `latest`: seneste build. Pin et af de andre i drift, så en opdatering er et valg, og rollback er muligt.
