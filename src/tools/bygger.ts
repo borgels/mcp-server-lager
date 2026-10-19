@@ -43,6 +43,27 @@ function utenIndlejrede(s: JsonSkema, skjul: string[], doc: OpenApiDoc): JsonSke
   return { ...s, properties: props };
 }
 
+/** Indskrænk enum-værdierne på «a.b» (eller «a») til de tilladte. */
+function begraenset(s: JsonSkema, begraens: Record<string, string[]>, doc: OpenApiDoc): JsonSkema {
+  const props = { ...(s.properties ?? {}) };
+  for (const [sti, tilladt] of Object.entries(begraens)) {
+    const [a, b] = sti.split('.') as [string, string | undefined];
+    const p = props[a];
+    if (!p) throw new Error(`begraens: ${sti} findes ikke`);
+    const ret = (o: JsonSkema): JsonSkema => {
+      const ukendte = tilladt.filter((v) => !(o.enum ?? []).includes(v));
+      if (ukendte.length) throw new Error(`begraens: ${sti} har ikke ${ukendte.join(', ')}`);
+      return { ...o, enum: tilladt };
+    };
+    if (!b) { props[a] = ret(p); continue; }
+    const r = p.$ref ? doc.components?.schemas?.[p.$ref.replace('#/components/schemas/', '')] ?? p : p;
+    const indre = r.properties?.[b];
+    if (!indre) throw new Error(`begraens: ${sti} findes ikke`);
+    props[a] = { ...r, properties: { ...r.properties, [b]: ret(indre) } };
+  }
+  return { ...s, properties: props };
+}
+
 function planFor(spec: ToolSpec, op: OpNoegle, doc: OpenApiDoc): { plan: Plan; felter: Record<string, { skema: z.ZodType; paakraevet: boolean; beskrivelse?: string }> } {
   const o = kraevOperation(op, doc);
   const skjul = new Set(spec.skjul ?? []);
@@ -59,13 +80,14 @@ function planFor(spec: ToolSpec, op: OpNoegle, doc: OpenApiDoc): { plan: Plan; f
   }
   const krop = kropsskema(o, doc);
   if (krop?.properties) {
-    const s = utenIndlejrede(krop, spec.skjul ?? [], doc);
+    const s = begraenset(utenIndlejrede(krop, spec.skjul ?? [], doc), spec.begraens ?? {}, doc);
     const req = new Set(s.required ?? []);
     for (const [api, ps] of Object.entries(s.properties ?? {})) {
       if (skjul.has(api) || api in fast) continue;
       const navn = spec.alias?.[api] ?? api;
       plan.felter[navn] = { hvor: 'body', api };
-      felter[navn] = { skema: tilZod(ps, doc), paakraevet: req.has(api), beskrivelse: ps.description };
+      const skema = tilZod(ps, doc);
+      felter[navn] = { skema: spec.nullbar?.includes(navn) ? skema.nullable() : skema, paakraevet: req.has(api), beskrivelse: ps.description };
     }
   }
   for (const k of spec.kraev ?? []) if (felter[k]) felter[k].paakraevet = true;
@@ -123,7 +145,7 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
   return {
     shape,
     skriv: metode !== 'get',
-    sletter: metode === 'delete',
+    sletter: metode === 'delete' || !!spec.destruktiv,
     moduler: [...new Set(ops.flatMap((op) => modulerFor(op, doc)))].sort(),
     ops,
     send,

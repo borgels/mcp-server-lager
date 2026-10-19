@@ -30,6 +30,12 @@ export type ToolSpec = {
   skjul?: string[];
   /** Faste værdier i kroppen, som værktøjet ikke viser. */
   fast?: Record<string, unknown>;
+  /** Indskrænk et felts enum-værdier, fx «afgoerelse.slags»: resten er appens. */
+  begraens?: Record<string, string[]>;
+  /** Felter, der også tager null (API'et: «null sletter et felt»). */
+  nullbar?: string[];
+  /** Markér værktøjet som destruktivt (destructiveHint), ud over DELETE. */
+  destruktiv?: boolean;
   /** Felter, værktøjet kræver, selv om API'et ikke gør. */
   kraev?: string[];
   /** Feltbeskrivelser (værktøjets navne), der går over kortets. */
@@ -254,9 +260,12 @@ export const KATALOG: ToolSpec[] = [
     beskrivelse: 'Når reolen er talt: det, der ikke blev scannet, bliver «savnes»-linjer. Svaret er status med de afvigelser, der skal afgøres.',
     kort: 'Lageransvarlig: gør en optælling op; det uscannede bliver «savnes».', eksempler: ['gør optællingen op'] },
   { navn: 'lager_ansvarlig_optaelling_afgoer', titel: 'Lageransvarlig: afgør afvigelse', op: 'POST /ansvarlig/optaelling/{id}/afgoer', alias: { id: 'optaellingId' },
-    beskrivelse: 'Afgør én afvigelse (linjeId fra status): savnet | hos_person (personId, projektId) | kasseret (note) | oprettet (modelId) | ikke_vores | plads_flyttet | ok. Udføres først, når optællingen lukkes.',
+    // Kassation, at give en enhed til en person og at oprette en enhed er menneskets afgørelse i appen.
+    begraens: { 'afgoerelse.slags': ['savnet', 'ikke_vores', 'plads_flyttet', 'ok'] },
+    skjul: ['afgoerelse.personId', 'afgoerelse.projektId', 'afgoerelse.note', 'afgoerelse.modelId'], destruktiv: true,
+    beskrivelse: 'Afgør én afvigelse (linjeId fra status): savnet | ikke_vores | plads_flyttet | ok. Kassation, «hos en person» og «opret enhed» afgøres i appen. Udføres først, når optællingen lukkes.',
     kort: 'Lageransvarlig: afgør en afvigelse i en optælling.', eksempler: ['T-00020 er savnet', 'T-00031 står det rigtige sted nu'] },
-  { navn: 'lager_ansvarlig_optaelling_luk', titel: 'Lageransvarlig: luk optælling', op: 'POST /ansvarlig/optaelling/{id}/luk', alias: { id: 'optaellingId' },
+  { navn: 'lager_ansvarlig_optaelling_luk', titel: 'Lageransvarlig: luk optælling', op: 'POST /ansvarlig/optaelling/{id}/luk', alias: { id: 'optaellingId' }, destruktiv: true,
     beskrivelse: 'Luk optællingen og udfør afgørelserne. Kræver at alle afvigelser har et svar. Bekræft med brugeren først.',
     kort: 'Lageransvarlig: luk en optælling og udfør afgørelserne.', eksempler: ['luk optællingen'] },
   { navn: 'lager_ansvarlig_ny_zone', titel: 'Lageransvarlig: ny zone', op: 'POST /ansvarlig/pladser/zoner',
@@ -269,8 +278,10 @@ export const KATALOG: ToolSpec[] = [
     beskrivelse: 'Ret en models stamdata, værnemidler og produktside. Kun de felter, der sendes, ændres. Priser rettes i appen.',
     kort: 'Lageransvarlig: ret en models stamdata, værnemidler og produktside.', eksempler: ['model 12 kræver høreværn og briller', 'sæt eftersynsinterval på model 12 til 12 måneder'] },
   { navn: 'lager_ansvarlig_ret_enhed', titel: 'Lageransvarlig: ret enhed', op: 'PUT /ansvarlig/enheder/{tag}',
-    beskrivelse: 'Ret en enheds stamdata (model, serienummer, købsdata, note, hjemmeplads, asbest). null sletter et felt.',
-    kort: 'Lageransvarlig: ret en enheds stamdata.', eksempler: ['T-00012 har serienummer 4711', 'T-00012 hører til model 14'] },
+    // Købspris går på afregningsarket, og model bestemmer prisen: økonomien rettes i appen.
+    skjul: ['koebspris', 'modelId'], nullbar: ['serienummer', 'koebsdato', 'leverandoer', 'bilag', 'note', 'plads'],
+    beskrivelse: 'Ret en enheds stamdata (serienummer, købsdato, leverandør, bilag, note, hjemmeplads, asbest). null sletter et felt. Model og købspris rettes i appen.',
+    kort: 'Lageransvarlig: ret en enheds stamdata.', eksempler: ['T-00012 har serienummer 4711', 'T-00012 står på A-12-3'] },
   { navn: 'lager_ansvarlig_saet_tilfoej_del', titel: 'Lageransvarlig: læg del i sæt', op: 'POST /ansvarlig/saet/{tag}/dele',
     beskrivelse: 'Gør en enhed (kode) til del af sættet med mærket tag.',
     kort: 'Lageransvarlig: læg en enhed i et sæt.', eksempler: ['læg T-00040 i kassen T-00031'],

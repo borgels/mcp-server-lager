@@ -107,6 +107,39 @@ describe('nye værktøjer', () => {
     expect(r.isError).toBe(true);
   });
 
+  it('optællingens afgørelse: kassation, hos_person og oprettet afvises uden at kalde appen', async () => {
+    const fetchFn = vi.fn(async () => svar(200, { linje: { id: 5 } }));
+    const mcp = await forbind(fetchFn as unknown as typeof fetch);
+    for (const slags of ['kasseret', 'hos_person', 'oprettet']) {
+      const r = await mcp.callTool({ name: 'lager_ansvarlig_optaelling_afgoer', arguments: { optaellingId: 3, linjeId: 5, afgoerelse: { slags } } });
+      expect(r.isError, slags).toBe(true);
+    }
+    expect(fetchFn).not.toHaveBeenCalled();
+    const ok = await mcp.callTool({ name: 'lager_ansvarlig_optaelling_afgoer', arguments: { optaellingId: 3, linjeId: 5, afgoerelse: { slags: 'savnet' } } });
+    expect(ok.isError).toBeFalsy();
+    expect(JSON.parse(String((fetchFn.mock.calls[0] as unknown as Kald)[1].body))).toEqual({ linjeId: 5, afgoerelse: { slags: 'savnet' } });
+    const { tools } = await mcp.listTools();
+    const afgoer = tools.find((x) => x.name === 'lager_ansvarlig_optaelling_afgoer')!;
+    const slagsSkema = (afgoer.inputSchema.properties!.afgoerelse as { properties: Record<string, { enum?: string[] }> }).properties;
+    expect(slagsSkema.slags!.enum).toEqual(['savnet', 'ikke_vores', 'plads_flyttet', 'ok']);
+    expect(Object.keys(slagsSkema)).toEqual(['slags']);
+    for (const n of ['lager_ansvarlig_optaelling_afgoer', 'lager_ansvarlig_optaelling_luk']) expect(tools.find((x) => x.name === n)!.annotations?.destructiveHint, n).toBe(true);
+  });
+
+  it('ret enhed: ingen købspris eller model, og null sletter et felt', async () => {
+    const fetchFn = vi.fn(async () => svar(200, { enhed: {} }));
+    const mcp = await forbind(fetchFn as unknown as typeof fetch);
+    const { tools } = await mcp.listTools();
+    const felter = Object.keys(tools.find((x) => x.name === 'lager_ansvarlig_ret_enhed')!.inputSchema.properties!);
+    expect(felter).not.toContain('koebspris');
+    expect(felter).not.toContain('modelId');
+    const r = await mcp.callTool({ name: 'lager_ansvarlig_ret_enhed', arguments: { tag: 'T-00012', note: null, plads: 'A-12-3', koebspris: 1 } });
+    expect(r.isError).toBeFalsy();
+    const [url, init] = fetchFn.mock.calls[0] as unknown as Kald;
+    expect([init.method, url.pathname]).toEqual(['PUT', '/api/lager/ansvarlig/enheder/T-00012']);
+    expect(JSON.parse(String(init.body))).toEqual({ note: null, plads: 'A-12-3' });
+  });
+
   it('nye skrivninger er også spærret uden LAGER_ENABLE_WRITES', async () => {
     delete process.env.LAGER_ENABLE_WRITES;
     const fetchFn = vi.fn();
