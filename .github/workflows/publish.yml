@@ -25,6 +25,25 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Tags, so a deployment can pin an image and roll back:
+      #   <sha>                   the commit's first build. The weekly rebuild does NOT overwrite it,
+      #                           so a pin on a sha always gives the same image.
+      #   <yyyymmdd>-<run>-<sha7> every build, including the weekly rebuild: unique (run number) and
+      #                           sortable. Pin this one to pick up base image and OS package fixes.
+      #   latest                  newest build.
+      - id: tags
+        env:
+          IMG: ghcr.io/${{ github.repository }}
+        run: |
+          build="$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
+          {
+            echo "list<<EOF"
+            echo "$IMG:latest"
+            echo "$IMG:$build"
+            [[ "$GITHUB_EVENT_NAME" == schedule ]] || echo "$IMG:$GITHUB_SHA"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Image tag: \`$build\`" >> "$GITHUB_STEP_SUMMARY"
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -33,6 +52,5 @@ jobs:
           no-cache: ${{ github.event_name == 'schedule' }}
           labels: |
             org.opencontainers.image.source=https://github.com/borgels/mcp-server-lager
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.sha }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          tags: ${{ steps.tags.outputs.list }}
