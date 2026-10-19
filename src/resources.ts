@@ -11,6 +11,8 @@ import { encodePathParam } from './path-params.js';
  *   lager://lagre          dine lagre, roller og installationens moduler
  *   lager://plads/{kode}   en plads (fx A-12-3) og enhederne, der hører til dér
  *   lager://enhed/{tag}    en enhed: hvad, hvem har den, hvor skal den stå
+ *   lager://lokation/{id}  en lokation i træet med sti, mål, børn og indhold
+ *   lager://rum/{id}/klima klimaet nu: temperatur, fugt og dugpunkt inde og ude
  */
 export function registerLagerResources(server: McpServer, client: LagerClient): void {
   const laes = async (navn: string, uri: URL, fn: () => Promise<unknown>): Promise<ReadResourceResult> => {
@@ -49,5 +51,19 @@ export function registerLagerResources(server: McpServer, client: LagerClient): 
     new ResourceTemplate('lager://enhed/{tag}', { list: undefined }),
     { title: 'En enhed', description: 'Opslag på et mærke: hvad er det, hvem har det, hvor skal det stå, værnemidler og dokumenter.', mimeType: 'application/json' },
     (uri, { tag }) => laes('enhed', uri, () => client.get(`/opslag/${encodePathParam(enkelt(tag), 'tag')}`)),
+  );
+
+  server.registerResource(
+    'lokation',
+    new ResourceTemplate('lager://lokation/{id}', { list: undefined }),
+    { title: 'En lokation', description: 'En lokation i lokationstræet (rum, reol, hylde, bin …) med sti, effektive mål, børn og indhold.', mimeType: 'application/json' },
+    (uri, { id }) => laes('lokation', uri, () => client.get(`/lokationer/${encodePathParam(enkelt(id), 'id')}`)),
+  );
+
+  server.registerResource(
+    'klima',
+    new ResourceTemplate('lager://rum/{id}/klima', { list: undefined }),
+    { title: 'Klimaet i et rum', description: 'Klimaet nu på en lokation (fx et rum eller en container): temperatur, fugt og dugpunkt inde og ude. Kræver modulet iot.', mimeType: 'application/json' },
+    (uri, { id }) => laes('klima', uri, () => client.get(`/iot/lokationer/${encodePathParam(enkelt(id), 'id')}/dugpunkt`)),
   );
 }

@@ -1,4 +1,5 @@
 import { assertSafeBaseUrl } from '../lager/client.js';
+import { HEMMELIGHED_MIN } from '../lager/idempotens.js';
 import { assertForwardedUserRequiresToken, type HttpConfig } from './http-helpers.js';
 
 /**
@@ -20,6 +21,11 @@ export function assertHttpStartupConfig(
     );
   }
   assertForwardedUserRequiresToken(['LAGER_TRUST_FORWARDED_USER'], config, env);
+  // Idempotensnøglerne er en HMAC med denne hemmelighed; uden den kunne de beregnes udefra,
+  // og en tilfældig pr. proces ville give forskellige nøgler på hver instans bag gatewayen.
+  if ((env.MCP_IDEMPOTENS_HEMMELIGHED ?? '').length < HEMMELIGHED_MIN) {
+    throw new Error(`HTTP mode requires MCP_IDEMPOTENS_HEMMELIGHED (at least ${HEMMELIGHED_MIN} characters), the secret behind the Idempotency-Keys.`);
+  }
 }
 
 /**

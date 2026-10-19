@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { McpServer, RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod/v4';
@@ -6,6 +7,7 @@ import { writeAuditEvent } from '../lager/audit.js';
 import { assertWritesEnabled, READ_TOOL_ANNOTATIONS, WRITE_TOOL_ANNOTATIONS } from '../lager/policy.js';
 import { searchCapabilities } from '../lager/capabilities.js';
 import { modulBesked, slaaetFra, type ModulCache } from '../lager/moduler.js';
+import { idempotensHemmelighed, klientNoegleFra, toolNoegle } from '../lager/idempotens.js';
 import { KATALOG, type Input } from './katalog.js';
 import { byg } from './bygger.js';
 
@@ -16,6 +18,8 @@ export interface RegisterOptions {
 
 export function registerLagerTools(server: McpServer, client: LagerClient, options: RegisterOptions = {}): void {
   const { moduler } = options;
+  // Uden en transport-session: én tilfældig værdi pr. server-instans (pr. stdio-proces, pr. HTTP-kald).
+  const instans = randomUUID();
   const json = (data: unknown): CallToolResult => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
   const fejl = (text: string): CallToolResult => ({ content: [{ type: 'text', text }], isError: true });
 
@@ -53,12 +57,20 @@ export function registerLagerTools(server: McpServer, client: LagerClient, optio
   const registrerede: { tool: RegisteredTool; moduler: string[] }[] = [];
   for (const spec of KATALOG) {
     const b = byg(spec);
-    const send = b.send(client);
     const annotations = !b.skriv ? READ_TOOL_ANNOTATIONS : b.sletter ? { ...WRITE_TOOL_ANNOTATIONS, destructiveHint: true } : WRITE_TOOL_ANNOTATIONS;
-    const tool = server.registerTool(spec.navn, { title: spec.titel, description: spec.beskrivelse, inputSchema: b.shape, annotations }, async (input) =>
+    const tool = server.registerTool(spec.navn, { title: spec.titel, description: spec.beskrivelse, inputSchema: b.shape, annotations }, async (input, extra) =>
       run(spec.navn, input, async () => {
         const i = input as Input;
-        const data = spec.kald ? await spec.kald(send, i, client) : await send(b.vaelg(i), i);
+        // Én frist for nye forsøg pr. tool-kald, og for en skrivning én Idempotency-Key,
+        // den samme ved hvert nyt forsøg (#113).
+        const kald = client.forKald(b.skriv
+          ? toolNoegle({
+            hemmelighed: idempotensHemmelighed(), user: client.user, tool: spec.navn, input: i, requestId: extra.requestId,
+            session: extra.sessionId ?? instans, klientNoegle: klientNoegleFra(extra._meta),
+          })
+          : undefined);
+        const send = b.send(kald);
+        const data = spec.kald ? await spec.kald(send, i, kald) : await send(b.vaelg(i), i);
         return spec.efter ? spec.efter(data, i) : data;
       }, b.skriv, b.moduler),
     );

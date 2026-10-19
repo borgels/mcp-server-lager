@@ -65,7 +65,7 @@ export function registerLagerPrompts(server: McpServer): void {
       besked(
         `Hvor er «${hvad}»?\n\n` +
           '- Ligner det et mærke eller serienummer: slå det op med lager_opslag. Svar med hvem der har det (og på hvilket projekt), eller pladsen, hvis det er hjemme.\n' +
-          '- Er det en beskrivelse: søg med lager_ansvarlig_enheder (soeg), hvis jeg er lageransvarlig; ellers se lager_tilgaengelighed for i dag og nævn de modeller, der passer.\n' +
+          '- Er det en beskrivelse eller et sted: søg med lager_hvor_er (q), der giver enheder med hjemmepladsens fulde sti og lokationer med kode eller navn. Findes den ikke: lager_ansvarlig_enheder (soeg), hvis jeg er lageransvarlig, ellers lager_tilgaengelighed for i dag.\n' +
           '- Er der flere, så vis dem kort med status og plads, og spørg hvilken jeg mener.',
       ),
   );
