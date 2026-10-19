@@ -7,7 +7,7 @@ import { writeAuditEvent } from '../lager/audit.js';
 import { assertWritesEnabled, READ_TOOL_ANNOTATIONS, WRITE_TOOL_ANNOTATIONS } from '../lager/policy.js';
 import { searchCapabilities } from '../lager/capabilities.js';
 import { modulBesked, slaaetFra, type ModulCache } from '../lager/moduler.js';
-import { klientNoegleFra, toolNoegle } from '../lager/idempotens.js';
+import { idempotensHemmelighed, klientNoegleFra, toolNoegle } from '../lager/idempotens.js';
 import { KATALOG, type Input } from './katalog.js';
 import { byg } from './bygger.js';
 
@@ -61,13 +61,14 @@ export function registerLagerTools(server: McpServer, client: LagerClient, optio
     const tool = server.registerTool(spec.navn, { title: spec.titel, description: spec.beskrivelse, inputSchema: b.shape, annotations }, async (input, extra) =>
       run(spec.navn, input, async () => {
         const i = input as Input;
-        // Én Idempotency-Key pr. tool-kald, genbrugt ved hvert nyt forsøg (#113).
-        const kald = b.skriv
-          ? client.medIdempotens(toolNoegle({
-            user: client.user, tool: spec.navn, input: i, requestId: extra.requestId,
+        // Én frist for nye forsøg pr. tool-kald, og for en skrivning én Idempotency-Key,
+        // den samme ved hvert nyt forsøg (#113).
+        const kald = client.forKald(b.skriv
+          ? toolNoegle({
+            hemmelighed: idempotensHemmelighed(), user: client.user, tool: spec.navn, input: i, requestId: extra.requestId,
             session: extra.sessionId ?? instans, klientNoegle: klientNoegleFra(extra._meta),
-          }))
-          : client;
+          })
+          : undefined);
         const send = b.send(kald);
         const data = spec.kald ? await spec.kald(send, i, kald) : await send(b.vaelg(i), i);
         return spec.efter ? spec.efter(data, i) : data;

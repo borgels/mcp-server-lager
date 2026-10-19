@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 
 /**
  * Én Idempotency-Key pr. tool-kald (#113): samme kald, også når klienten prøver
@@ -12,8 +12,16 @@ import { createHash } from 'node:crypto';
  *
  * Sender klienten sin egen nøgle i `_meta.idempotencyKey`, bruges den i stedet for
  * session og id, så en agent, der gentager hele tool-kaldet, også får ét resultat.
+ * Appens nøgler er (endnu) globale og permanente: samme klientnøgle med samme input
+ * senere giver stille det gamle resultat.
+ *
+ * Nøglen er en HMAC med serverens hemmelighed (MCP_IDEMPOTENS_HEMMELIGHED), så en,
+ * der kalder API'et direkte, ikke kan beregne en brugers nøgle på forhånd og sende
+ * den først. HTTP-transporten kræver hemmeligheden; uden den (stdio) bruges en
+ * tilfældig pr. proces, og klientnøgler gælder så kun, mens processen kører.
  */
 export type NoegleGrundlag = {
+  hemmelighed: string;
   user: string;
   tool: string;
   input: unknown;
@@ -39,7 +47,16 @@ export function toolNoegle(g: NoegleGrundlag): string {
   const dele = g.klientNoegle
     ? ['klient', g.user, g.tool, g.klientNoegle, kanonisk(g.input)]
     : ['kald', g.user, g.session, String(g.requestId ?? ''), g.tool, kanonisk(g.input)];
-  return `mcp-${createHash('sha256').update(dele.join('\u0000'), 'utf8').digest('hex').slice(0, 40)}`;
+  return `mcp-${createHmac('sha256', g.hemmelighed).update(dele.join('\u0000'), 'utf8').digest('hex').slice(0, 40)}`;
+}
+
+/** Mindste længde på MCP_IDEMPOTENS_HEMMELIGHED. */
+export const HEMMELIGHED_MIN = 32;
+const PROCESSENS = randomBytes(32).toString('hex');
+
+/** Serverens hemmelighed: MCP_IDEMPOTENS_HEMMELIGHED, ellers en tilfældig pr. proces. */
+export function idempotensHemmelighed(env: NodeJS.ProcessEnv = process.env): string {
+  return env.MCP_IDEMPOTENS_HEMMELIGHED || PROCESSENS;
 }
 
 /** Klientens egen nøgle fra `_meta`, hvis den er en rimelig streng. */

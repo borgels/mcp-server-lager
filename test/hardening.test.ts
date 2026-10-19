@@ -60,8 +60,11 @@ describe('HTTP startup', () => {
   it('refuses trusted forwarded user without MCP_HTTP_TOKEN', () => {
     expect(() => assertHttpStartupConfig({}, { LAGER_TRUST_FORWARDED_USER: 'true' })).toThrow(/MCP_HTTP_TOKEN/);
   });
-  it('accepts trust flag with token', () => {
-    expect(() => assertHttpStartupConfig({ httpToken: 't' }, { LAGER_TRUST_FORWARDED_USER: 'true' })).not.toThrow();
+  it('accepts trust flag with token and an idempotency secret of at least 32 characters', () => {
+    const hemmelighed = 'x'.repeat(32);
+    expect(() => assertHttpStartupConfig({ httpToken: 't' }, { LAGER_TRUST_FORWARDED_USER: 'true', MCP_IDEMPOTENS_HEMMELIGHED: hemmelighed })).not.toThrow();
+    expect(() => assertHttpStartupConfig({ httpToken: 't' }, { LAGER_TRUST_FORWARDED_USER: 'true' })).toThrow(/MCP_IDEMPOTENS_HEMMELIGHED/);
+    expect(() => assertHttpStartupConfig({ httpToken: 't' }, { LAGER_TRUST_FORWARDED_USER: 'true', MCP_IDEMPOTENS_HEMMELIGHED: 'kort' })).toThrow(/MCP_IDEMPOTENS_HEMMELIGHED/);
   });
 });
 

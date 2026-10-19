@@ -6149,7 +6149,7 @@
                           },
                           "svar": {
                             "type": "string",
-                            "description": "Svaret i én linje: «På plads: Hjem › Skur › R1-3», «Ude hos Jesper (Sag 2602)», «I SKUR-0001, hos Jesper (ude) …»"
+                            "description": "Svaret i én linje: «På plads: Hjem › Skur › R1-3», «Ude hos en kollega (Sag 1000)», «I SKUR-0001, hos en kollega (ude) …»"
                           }
                         }
                       }

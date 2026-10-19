@@ -61,6 +61,25 @@ describe('OpenAPI-øjebliksbilledet', () => {
     expect(forkerte).toEqual([]);
   });
 
+  it('operationId er unikke, og hvert lager_*-operationId er værktøjet med det navn, på den operation', () => {
+    const ider = alleOperationer().flatMap((op) => {
+      const id = (operation(op) as { operationId?: string }).operationId;
+      return id ? [[op, id] as const] : [];
+    });
+    expect(ider.length).toBeGreaterThan(0);
+    const navne = ider.map(([, id]) => id);
+    expect(navne.filter((id, i) => navne.indexOf(id) !== i), 'dublerede operationId').toEqual([]);
+    const forkerte = ider
+      .filter(([, id]) => id.startsWith('lager_'))
+      .filter(([op, id]) => {
+        const spec = KATALOG.find((s) => s.navn === id);
+        // Et værktøj med navnet skal bruge netop operationen; uden værktøj skal operationen have en grund.
+        return spec ? !byg(spec).ops.includes(op) : UDEN_VAERKTOEJ[op] === undefined;
+      })
+      .map(([op, id]) => `${op} → ${id}`);
+    expect(forkerte, 'et lager_*-operationId skal være navnet på værktøjet, der bruger operationen (eller stå i UDEN_VAERKTOEJ)').toEqual([]);
+  });
+
   it('skemaerne kommer fra kortet: påkrævet, typer og flag', () => {
     const book = byg(KATALOG.find((s) => s.navn === 'lager_book')!);
     expect(Object.keys(book.shape).sort()).toEqual(['antal', 'fra', 'kategori', 'lagerId', 'model', 'note', 'projektId', 'tag', 'til'].sort());

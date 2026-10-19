@@ -11,14 +11,36 @@ export interface LagerClientOptions {
   fetchFn?: typeof fetch;
   /** Hvor mange gange et kald prøves igen efter 429 eller en forbigående fejl (standard 3). */
   maxRetries?: number;
-  /** Længste ventetid før et nyt forsøg; et længere Retry-After gives videre som fejl (standard 30 s). */
+  /** Længste ventetid før et nyt forsøg; et længere Retry-After gives videre som fejl (standard 20 s). */
   maxVentMs?: number;
+  /** Samlet frist for nye forsøg pr. tool-kald, regnet fra kaldets start (standard 25 s). */
+  fristMs?: number;
   /** Til test: ventetiden mellem forsøg. */
   sleepFn?: (ms: number) => Promise<void>;
 }
 
-/** Forbigående: værdige til et nyt forsøg med samme Idempotency-Key. */
-const FORBIGAAENDE = new Set([429, 502, 503, 504]);
+/**
+ * Hvornår et kald prøves igen. Ikke alle skrive-ruter i appen gemmer svaret pr.
+ * Idempotency-Key endnu, så en skrivning (alt andet end GET, også DELETE) prøves
+ * kun igen, når den bevisligt ikke er udført:
+ *  - 429: rate limit afviser, før ruten kører;
+ *  - en forbindelsesfejl, før forespørgslen blev sendt (ECONNREFUSED, DNS).
+ * Aldrig ved 502/503/504, timeout eller en fejl efter afsendelse: kaldet kan være
+ * udført. Et GET prøves også igen ved 502/503/504 fra en proxy og ved netværksfejl.
+ * Et svar med appens egen JSON { error } prøves aldrig igen (bortset fra 429):
+ * så er det appen, der har svaret, ikke en proxy.
+ */
+const PROXY_5XX = new Set([502, 503, 504]);
+const IKKE_SENDT = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']);
+
+/** Fejlkoden fra undici (fetch failed → cause.code), også når den ligger et lag dybere. */
+function fejlkode(e: unknown): string | undefined {
+  for (let x = e, i = 0; x && typeof x === 'object' && i < 4; x = (x as { cause?: unknown }).cause, i++) {
+    const code = (x as { code?: unknown }).code;
+    if (typeof code === 'string') return code;
+  }
+  return undefined;
+}
 
 type Query = Record<string, string | number | boolean | null | undefined>;
 
@@ -39,9 +61,12 @@ export class LagerClient {
   private readonly fetchFn: typeof fetch;
   private readonly maxRetries: number;
   private readonly maxVentMs: number;
+  private readonly fristMs: number;
   private readonly sleepFn: (ms: number) => Promise<void>;
-  /** Sat af medIdempotens: tool-kaldets nøgle og hvor mange skrivninger der er sendt med den. */
+  /** Sat af forKald: tool-kaldets nøgle og hvor mange skrivninger der er sendt med den. */
   private noegle?: { base: string; n: number };
+  /** Sat af forKald: tidspunktet (ms), hvorefter tool-kaldet ikke prøver igen. */
+  private frist?: number;
 
   constructor(options: LagerClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? process.env.LAGER_BASE_URL ?? '').replace(/\/+$/, '');
@@ -50,7 +75,8 @@ export class LagerClient {
     this.timeoutMs = options.timeoutMs ?? Number(process.env.LAGER_TIMEOUT_MS ?? 30_000);
     this.fetchFn = options.fetchFn ?? fetch;
     this.maxRetries = options.maxRetries ?? Number(process.env.LAGER_RETRY_MAX ?? 3);
-    this.maxVentMs = options.maxVentMs ?? Number(process.env.LAGER_RETRY_MAX_VENT_MS ?? 30_000);
+    this.maxVentMs = options.maxVentMs ?? Number(process.env.LAGER_RETRY_MAX_VENT_MS ?? 20_000);
+    this.fristMs = options.fristMs ?? Number(process.env.LAGER_RETRY_FRIST_MS ?? 25_000);
     this.sleepFn = options.sleepFn ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     if (!this.baseUrl) throw new Error('LAGER_BASE_URL mangler');
     assertSafeBaseUrl(this.baseUrl);
@@ -59,13 +85,15 @@ export class LagerClient {
   }
 
   /**
-   * Samme klient, men skrivningerne får tool-kaldets nøgle (#113): den første
-   * skrivning `base`, de næste `base-2`, `base-3` … (fx én pr. kode i en scanning).
-   * Rækkefølgen er værktøjets egen, så et gentaget kald giver de samme nøgler.
+   * Samme klient for ét tool-kald: én samlet frist for nye forsøg, og med `noegle`
+   * får skrivningerne tool-kaldets Idempotency-Key (#113): den første `noegle`, de
+   * næste `noegle-2`, `noegle-3` … (fx én pr. kode i en scanning). Rækkefølgen er
+   * værktøjets egen, så et gentaget kald giver de samme nøgler.
    */
-  medIdempotens(base: string): LagerClient {
+  forKald(noegle?: string): LagerClient {
     const c = Object.create(this) as LagerClient;
-    c.noegle = { base, n: 0 };
+    c.noegle = noegle ? { base: noegle, n: 0 } : undefined;
+    c.frist = Date.now() + this.fristMs;
     return c;
   }
 
@@ -110,34 +138,42 @@ export class LagerClient {
     };
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';
-      // Én nøgle pr. skrivning, også på tværs af nye forsøg: appen gør det samme kald to gange til ét resultat.
+      // Én nøgle pr. skrivning, den samme ved hvert nyt forsøg.
       headers['Idempotency-Key'] = this.naesteNoegle();
     }
     const init = { method, headers, body: body === undefined ? undefined : JSON.stringify(body) };
+    const laes = method === 'GET';
+    const frist = this.frist ?? Date.now() + this.fristMs;
+    // Et nyt forsøg kun, hvis der er forsøg og tid tilbage til at vente `ms`.
+    const maa = (forsoeg: number, ms: number) => forsoeg < this.maxRetries && ms <= this.maxVentMs && Date.now() + ms <= frist;
     for (let forsoeg = 0; ; forsoeg++) {
       let res: Response;
       try {
         res = await this.fetchFn(url, { ...init, signal: AbortSignal.timeout(this.timeoutMs) });
       } catch (e) {
-        // Netværksfejl (ikke timeout): prøv igen; samme nøgle gør det ufarligt for en skrivning.
         const timeout = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError');
-        if (timeout || forsoeg >= this.maxRetries) throw e;
-        await this.sleepFn(backoff(forsoeg));
-        continue;
-      }
-      if (!res.ok && FORBIGAAENDE.has(res.status) && forsoeg < this.maxRetries) {
-        const vent = retryAfterMs(res.headers.get('retry-after')) ?? backoff(forsoeg);
-        if (vent <= this.maxVentMs) {
-          await res.body?.cancel();
+        const ikkeSendt = IKKE_SENDT.has(fejlkode(e) ?? '');
+        const vent = backoff(forsoeg);
+        if (!timeout && (laes || ikkeSendt) && maa(forsoeg, vent)) {
           await this.sleepFn(vent);
           continue;
         }
+        throw e;
       }
       const text = await res.text();
       let data: unknown = undefined;
       try { data = text ? JSON.parse(text) : undefined; } catch { data = text; }
+      const appensFejl = !!data && typeof data === 'object' && 'error' in data;
+      if (res.status === 429 || (laes && PROXY_5XX.has(res.status) && !appensFejl)) {
+        const ra = retryAfterMs(res.headers.get('retry-after'));
+        const vent = ra !== undefined ? medJitter(ra) : backoff(forsoeg);
+        if (maa(forsoeg, vent)) {
+          await this.sleepFn(vent);
+          continue;
+        }
+      }
       if (!res.ok) {
-        const msg = data && typeof data === 'object' && 'error' in data ? String((data as { error: unknown }).error) : `HTTP ${res.status}`;
+        const msg = appensFejl ? String((data as { error: unknown }).error) : `HTTP ${res.status}`;
         const efter = res.status === 429 ? retryAfterMs(res.headers.get('retry-after')) : undefined;
         throw new LagerApiError(res.status, efter !== undefined ? `${msg} (prøv igen om ${Math.ceil(efter / 1000)} s)` : msg);
       }
@@ -153,6 +189,11 @@ export function retryAfterMs(v: string | null, nu = Date.now()): number | undefi
   if (/^\d+$/.test(t)) return Number(t) * 1000;
   const dato = Date.parse(t);
   return Number.isNaN(dato) ? undefined : Math.max(0, dato - nu);
+}
+
+/** Retry-After plus op til 10 % (mindst 250 ms), så kald, der venter på det samme, ikke vågner samtidig. */
+function medJitter(ms: number): number {
+  return ms + Math.round(Math.random() * Math.max(250, ms / 10));
 }
 
 /** 250 ms, 500 ms, 1 s … højst 5 s, med lidt tilfældighed, så ventende klienter ikke rammer samtidig. */

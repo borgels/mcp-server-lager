@@ -24,53 +24,94 @@ async function forbind(client: LagerClient) {
   return mcp;
 }
 
+const ikkeSendt = (code: string) => Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error(code), { code }) });
+
 describe('LagerClient: nye forsøg', () => {
-  it('429 med Retry-After: venter de sekunder og prøver igen med samme nøgle', async () => {
+  it('429 med Retry-After: venter de sekunder plus jitter og prøver igen med samme nøgle', async () => {
     const fetchFn = vi.fn()
       .mockResolvedValueOnce(svar(429, { error: 'For mange kald' }, { 'Retry-After': '2' }))
       .mockResolvedValueOnce(svar(201, { ok: true }));
     const sleepFn = vi.fn(async (_ms: number) => {});
-    const c = klient(fetchFn, sleepFn).medIdempotens('mcp-fast');
+    const c = klient(fetchFn, sleepFn).forKald('mcp-fast-noegle');
     await expect(c.post('/flyt', { koder: ['T-1'] })).resolves.toEqual({ ok: true });
-    expect(sleepFn).toHaveBeenCalledWith(2000);
-    expect(fetchFn.mock.calls.map(noegle)).toEqual(['mcp-fast', 'mcp-fast']);
+    const ventet = sleepFn.mock.calls[0]![0];
+    expect(ventet).toBeGreaterThanOrEqual(2000);
+    expect(ventet).toBeLessThanOrEqual(2250);
+    expect(fetchFn.mock.calls.map(noegle)).toEqual(['mcp-fast-noegle', 'mcp-fast-noegle']);
   });
 
-  it('forbigående 502/503/504 prøves igen med backoff, også uden medIdempotens med samme nøgle', async () => {
+  it('en skrivning (også DELETE) prøves aldrig igen ved 502/503/504, timeout eller en fejl efter afsendelse', async () => {
+    for (const metode of ['post', 'delete'] as const) {
+      for (const fejl of [svar(502, {}), svar(503, {}), svar(504, {})]) {
+        const fetchFn = vi.fn(async () => fejl.clone());
+        await expect(metode === 'post' ? klient(fetchFn).post('/flyt', {}) : klient(fetchFn).delete('/bestillinger/1')).rejects.toMatchObject({ status: fejl.status });
+        expect(fetchFn, `${metode} ${fejl.status}`).toHaveBeenCalledTimes(1);
+      }
+      for (const e of [new TypeError('fetch failed'), ikkeSendt('ECONNRESET'), Object.assign(new Error('timeout'), { name: 'TimeoutError' })]) {
+        const fetchFn = vi.fn(async () => { throw e; });
+        await expect(metode === 'post' ? klient(fetchFn).post('/flyt', {}) : klient(fetchFn).delete('/bestillinger/1')).rejects.toBe(e);
+        expect(fetchFn).toHaveBeenCalledTimes(1);
+      }
+    }
+  });
+
+  it('en skrivning prøves igen, når forbindelsen bevisligt ikke blev oprettet', async () => {
+    for (const code of ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']) {
+      const fetchFn = vi.fn().mockRejectedValueOnce(ikkeSendt(code)).mockResolvedValueOnce(svar(201, { ok: 1 }));
+      await expect(klient(fetchFn).forKald('mcp-noegle-12345678').post('/flyt', {})).resolves.toEqual({ ok: 1 });
+      expect(fetchFn.mock.calls.map(noegle)).toEqual(['mcp-noegle-12345678', 'mcp-noegle-12345678']);
+    }
+  });
+
+  it('et GET prøves igen ved en proxys 502/503/504 og ved netværksfejl, men ikke ved timeout', async () => {
     const fetchFn = vi.fn()
-      .mockResolvedValueOnce(svar(503, {}))
-      .mockResolvedValueOnce(svar(502, {}))
+      .mockResolvedValueOnce(new Response('Bad Gateway', { status: 502 }))
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
       .mockResolvedValueOnce(svar(200, { ok: true }));
     const sleepFn = vi.fn(async (_ms: number) => {});
-    await expect(klient(fetchFn, sleepFn).post('/flyt', {})).resolves.toEqual({ ok: true });
+    await expect(klient(fetchFn, sleepFn).get('/mine')).resolves.toEqual({ ok: true });
     expect(fetchFn).toHaveBeenCalledTimes(3);
-    const [k1, k2, k3] = fetchFn.mock.calls.map(noegle);
-    expect(k1).toMatch(/^mcp-/);
-    expect([k2, k3]).toEqual([k1, k1]);
     for (const [ms] of sleepFn.mock.calls) expect(ms).toBeLessThanOrEqual(5000);
+    const timeout = vi.fn(async () => { throw Object.assign(new Error('timeout'), { name: 'TimeoutError' }); });
+    await expect(klient(timeout).get('/mine')).rejects.toThrow('timeout');
+    expect(timeout).toHaveBeenCalledTimes(1);
   });
 
-  it('giver op efter maxRetries og giver appens fejl videre', async () => {
-    const fetchFn = vi.fn(async () => svar(503, { error: 'Nede' }));
-    await expect(klient(fetchFn, undefined, { maxRetries: 2 }).get('/mine')).rejects.toMatchObject({ status: 503, message: 'Nede' });
+  it('et 5xx med appens egen { error } prøves aldrig igen, heller ikke et GET', async () => {
+    const fetchFn = vi.fn(async () => svar(503, { error: 'Home Assistant svarer ikke' }));
+    await expect(klient(fetchFn).get('/iot/enheder')).rejects.toMatchObject({ status: 503, message: 'Home Assistant svarer ikke' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('giver op efter maxRetries', async () => {
+    const fetchFn = vi.fn(async () => svar(429, { error: 'For mange kald' }, { 'Retry-After': '0' }));
+    await expect(klient(fetchFn, undefined, { maxRetries: 2 }).post('/flyt', {})).rejects.toMatchObject({ status: 429 });
     expect(fetchFn).toHaveBeenCalledTimes(3);
   });
 
   it('500, 4xx og et for langt Retry-After prøves ikke igen', async () => {
     for (const r of [svar(500, {}), svar(409, {}), svar(429, { error: 'For mange kald' }, { 'Retry-After': '120' })]) {
       const fetchFn = vi.fn(async () => r.clone());
-      const e = (await klient(fetchFn).post("/flyt", {}).catch((x: unknown) => x)) as Error;
+      const e = (await klient(fetchFn).get('/mine').catch((x: unknown) => x)) as Error;
       expect(fetchFn).toHaveBeenCalledTimes(1);
       if (r.status === 429) expect(e.message).toBe('For mange kald (prøv igen om 120 s)');
     }
   });
 
-  it('netværksfejl prøves igen, timeout ikke', async () => {
-    const net = vi.fn().mockRejectedValueOnce(new TypeError('fetch failed')).mockResolvedValueOnce(svar(200, { ok: 1 }));
-    await expect(klient(net).get('/mine')).resolves.toEqual({ ok: 1 });
-    const timeout = vi.fn(async () => { throw Object.assign(new Error('timeout'), { name: 'TimeoutError' }); });
-    await expect(klient(timeout).get('/mine')).rejects.toThrow('timeout');
-    expect(timeout).toHaveBeenCalledTimes(1);
+  it('den samlede frist pr. tool-kald stopper nye forsøg', async () => {
+    let nu = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => nu);
+    try {
+      const fetchFn = vi.fn(async () => svar(429, { error: 'For mange kald' }, { 'Retry-After': '10' }));
+      const sleepFn = vi.fn(async (ms: number) => { nu += ms; });
+      const c = klient(fetchFn, sleepFn, { fristMs: 25_000, maxRetries: 10 }).forKald('mcp-frist-12345678');
+      await expect(c.post('/flyt', {})).rejects.toMatchObject({ status: 429 });
+      // 10 s + 10 s (+ jitter) er inden for 25 s; et tredje forsøg ville gå over.
+      expect(fetchFn).toHaveBeenCalledTimes(3);
+      expect(nu).toBeLessThanOrEqual(25_000);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it('Retry-After som sekunder eller HTTP-dato', () => {
@@ -85,11 +126,11 @@ describe('nøglen pr. tool-kald', () => {
   beforeEach(() => { process.env.LAGER_ENABLE_WRITES = 'true'; });
 
   it('er stabil for samme kald og forskellig for andet id, værktøj, argumenter, bruger eller session', () => {
-    const g = { user: 'u', tool: 'lager_aflever', input: { linjer: [{ kode: 'T-1' }], a: 1 }, requestId: 3, session: 's1' };
+    const g = { hemmelighed: 'h'.repeat(32), user: 'u', tool: 'lager_aflever', input: { linjer: [{ kode: 'T-1' }], a: 1 }, requestId: 3, session: 's1' };
     const k = toolNoegle(g);
     expect(k).toMatch(/^mcp-[0-9a-f]{40}$/);
     expect(toolNoegle({ ...g, input: { a: 1, linjer: [{ kode: 'T-1' }] } })).toBe(k);
-    for (const anden of [{ requestId: 4 }, { tool: 'lager_flyt_projekt' }, { input: { linjer: [{ kode: 'T-2' }] } }, { user: 'v' }, { session: 's2' }]) {
+    for (const anden of [{ hemmelighed: 'i'.repeat(32) }, { requestId: 4 }, { tool: 'lager_flyt_projekt' }, { input: { linjer: [{ kode: 'T-2' }] } }, { user: 'v' }, { session: 's2' }]) {
       expect(toolNoegle({ ...g, ...anden })).not.toBe(k);
     }
     // Klientens egen nøgle går forud for session og id.
