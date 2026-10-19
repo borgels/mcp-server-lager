@@ -20,6 +20,8 @@ export type Bygget = {
   sletter: boolean;
   /** idempotentHint: samme kald igen ændrer intet ud over det første. */
   idempotent: boolean;
+  /** openWorldHint. */
+  aabenVerden: boolean;
   moduler: string[];
   ops: OpNoegle[];
   send: (client: LagerClient) => Sender;
@@ -149,6 +151,7 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
     skriv: metode !== 'get',
     sletter: metode === 'delete' || !!spec.destruktiv,
     idempotent: metode === 'get' || (spec.idempotent ?? metode !== 'post'),
+    aabenVerden: !!spec.aabenVerden,
     moduler: [...new Set(ops.flatMap((op) => modulerFor(op, doc)))].sort(),
     ops,
     send,

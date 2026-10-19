@@ -98,7 +98,12 @@ describe('scenarier', () => {
     expect(a('lager_ansvarlig_iot_styr')).toMatchObject({ destructiveHint: false, idempotentHint: true });
     expect(a('lager_batteri_opladet')).toMatchObject({ destructiveHint: false, idempotentHint: false });
     expect(a('lager_ansvarlig_iot_alarmregel_fjern')).toMatchObject({ destructiveHint: true });
-    expect(a('scenario_hent')).toMatchObject({ readOnlyHint: true });
+    expect(a('scenario_hent')).toMatchObject({ readOnlyHint: true, openWorldHint: false });
+    expect(a('lager_ansvarlig_iot_skift')).toMatchObject({ destructiveHint: false, openWorldHint: true });
+    expect(a('lager_ansvarlig_iot_styr')).toMatchObject({ openWorldHint: true });
+    expect(a('lager_ansvarlig_model_egenskaber')).toMatchObject({ destructiveHint: true, idempotentHint: true, openWorldHint: false });
+    expect(a('lager_ansvarlig_forbrugsvare_egenskaber')).toMatchObject({ destructiveHint: true });
+    for (const n of ['lager_ansvarlig_iot_skift', 'lager_ansvarlig_iot_styr']) expect(tools.find((t) => t.name === n)!.description).toContain('Bekræft med brugeren før du tænder, slukker eller ændrer');
   });
 
   it('skabelon og forsikring: id eller nøgle, og altid JSON (format er skjult)', async () => {
@@ -179,6 +184,15 @@ describe('batterier, alarmer og styring', () => {
       'POST /api/lager/iot/enheder/8/styr',
     ]);
     expect(JSON.parse(String(kald(fetchFn)[5]![1].body))).toEqual({ handling: 'hastighed', vaerdi: 60 });
+  });
+
+  it('en tom 2xx-krop giver tom tekst, ikke undefined', async () => {
+    process.env.LAGER_ENABLE_WRITES = 'true';
+    const fetchFn = vi.fn(async () => new Response(null, { status: 204 }));
+    const mcp = await forbind(fetchFn as unknown as typeof fetch);
+    const r = await mcp.callTool({ name: 'lager_ansvarlig_iot_alarm_kvitter', arguments: { alarmId: 3 } });
+    expect(r.isError).toBeFalsy();
+    expect((r as { content: { type: string; text: unknown }[] }).content[0]).toEqual({ type: 'text', text: '' });
   });
 
   it('YAML og anden tekst kommer ud som den er', async () => {

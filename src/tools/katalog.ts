@@ -36,6 +36,8 @@ export type ToolSpec = {
   nullbar?: string[];
   /** Markér værktøjet som destruktivt (destructiveHint), ud over DELETE. */
   destruktiv?: boolean;
+  /** openWorldHint: værktøjet rækker ud i den fysiske verden (fx Home Assistant), ikke kun lagerets data. */
+  aabenVerden?: boolean;
   /** idempotentHint, når metoden ikke siger det: PUT, PATCH og DELETE er idempotente, POST ikke. */
   idempotent?: boolean;
   /** Felter, værktøjet kræver, selv om API'et ikke gør. */
@@ -490,8 +492,8 @@ export const KATALOG: ToolSpec[] = [
     beskrivelse: 'Erstat hele modellens kravliste (kun installationens evnetyper). Et hårdt krav må ikke brydes; et blødt er en anbefaling.',
     kort: 'Lageransvarlig: sæt en models krav til evner.', eksempler: ['model 12 skal lades på batterisystem X', 'model 30 kræver udsugning'] },
   { navn: 'lager_ansvarlig_iot_skift', titel: 'Lageransvarlig: tænd eller sluk', op: 'POST /iot/enheder/{id}/skift', alias: { id: 'enhedId' },
-    idempotent: true,
-    beskrivelse: 'Tænd eller sluk en kontakt, et lys eller en ventilator gennem Home Assistant. Står i revisionsloggen. 503 uden forbindelse, 502 når Home Assistant afviser. Mere end tænd/sluk: lager_ansvarlig_iot_styr.',
+    idempotent: true, aabenVerden: true,
+    beskrivelse: 'Tænd eller sluk en kontakt, et lys eller en ventilator gennem Home Assistant. Bekræft med brugeren før du tænder, slukker eller ændrer. Står i revisionsloggen. 503 uden forbindelse, 502 når Home Assistant afviser. Mere end tænd/sluk: lager_ansvarlig_iot_styr.',
     kort: 'Lageransvarlig: tænd eller sluk en kontakt, et lys eller en ventilator.', eksempler: ['tænd affugteren i containeren', 'sluk lyset i skuret'] },
 
   // ---------------------------------------------------------------- skriv: skabeloner, egenskaber og varer pr. lokation
@@ -507,14 +509,14 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_ansvarlig_kategoriskabelon_ret', titel: 'Lageransvarlig: ret kategoriskabelon', op: 'PATCH /ansvarlig/kategoriskabeloner/{id}', alias: { id: 'kategoriskabelonId' },
     beskrivelse: 'Ret navn, beskrivelse eller felter, eller slå den fra (aktiv: false). Nøglen ligger fast; nye felter skal passe til de værdier, der er sat.',
     kort: 'Lageransvarlig: ret en kategoriskabelon.', eksempler: ['kabler skal også have en farve'] },
-  { navn: 'lager_ansvarlig_model_egenskaber', titel: 'Lageransvarlig: modellens egenskaber', op: 'PUT /ansvarlig/modeller/{id}/egenskaber', alias: { id: 'modelId' },
-    beskrivelse: 'Sæt modellens kategoriskabelon og egenskaber. egenskaber flettes ind i de gemte; null fjerner et felt.',
+  { navn: 'lager_ansvarlig_model_egenskaber', titel: 'Lageransvarlig: modellens egenskaber', op: 'PUT /ansvarlig/modeller/{id}/egenskaber', alias: { id: 'modelId' }, destruktiv: true,
+    beskrivelse: 'Sæt modellens kategoriskabelon og egenskaber. egenskaber flettes ind i de gemte; null fjerner et felt. kategoriskabelon: null fjerner skabelonen og alle værdier: bekræft med brugeren først.',
     kort: 'Lageransvarlig: sæt en models kategori og egenskaber (stik, længde …).', eksempler: ['model 12 er et USB-C-kabel på 2 m'] },
-  { navn: 'lager_ansvarlig_forbrugsvare_egenskaber', titel: 'Lageransvarlig: varens egenskaber', op: 'PUT /ansvarlig/forbrugsvarer/{id}/egenskaber', alias: { id: 'forbrugsvareId' },
-    beskrivelse: 'Sæt forbrugsvarens kategoriskabelon og egenskaber. egenskaber flettes ind i de gemte; null fjerner et felt.',
+  { navn: 'lager_ansvarlig_forbrugsvare_egenskaber', titel: 'Lageransvarlig: varens egenskaber', op: 'PUT /ansvarlig/forbrugsvarer/{id}/egenskaber', alias: { id: 'forbrugsvareId' }, destruktiv: true,
+    beskrivelse: 'Sæt forbrugsvarens kategoriskabelon og egenskaber. egenskaber flettes ind i de gemte; null fjerner et felt. kategoriskabelon: null fjerner skabelonen og alle værdier: bekræft med brugeren først.',
     kort: 'Lageransvarlig: sæt en forbrugsvares kategori og egenskaber.', eksempler: ['modstandene er 10 kΩ'] },
   { navn: 'lager_ansvarlig_forbrugsvare_beholdning_saet', titel: 'Lageransvarlig: varens beholdning på en lokation', op: 'PUT /ansvarlig/forbrugsvarer/{id}/beholdninger', alias: { id: 'forbrugsvareId' },
-    beskrivelse: 'Tildel varen en lokation, tæl op (talt eller niveau), sæt minimum og maks eller bestil ved, eller fjern tildelingen (fjern: true, kun når der intet er). null fjerner en grænse.',
+    beskrivelse: 'Tildel varen en lokation, tæl op (talt eller niveau), sæt minimum og maks eller bestil ved, eller fjern tildelingen (fjern: true, kun når der intet er; bekræft med brugeren først). null fjerner en grænse.',
     kort: 'Lageransvarlig: tildel, tæl op eller sæt grænser for en vare på en lokation.', eksempler: ['der er 40 kabelbindere i bin K-17', 'filtrene skal bestilles under 5 på hylde A-12-3'] },
   { navn: 'lager_ansvarlig_forbrugsvare_flyt', titel: 'Lageransvarlig: flyt vare', op: 'POST /ansvarlig/forbrugsvarer/{id}/flyt', alias: { id: 'forbrugsvareId' },
     beskrivelse: 'Flyt varen mellem to lokationer på samme lager: antal (standard alt), eller niveauet (fra bliver tom). Summen er uændret.',
@@ -553,8 +555,8 @@ export const KATALOG: ToolSpec[] = [
     kort: 'Fjern en planlagt ting fra et scenarie.', eksempler: ['tag printeren ud af plan 4'] },
 
   // ---------------------------------------------------------------- skriv: klima, alarmer og styring
-  { navn: 'lager_ansvarlig_iot_styr', titel: 'Lageransvarlig: styr lys og ventilation', op: 'POST /iot/enheder/{id}/styr', alias: { id: 'enhedId' }, idempotent: true,
-    beskrivelse: 'Overstyr et lys, en kontakt eller et ventilationsanlæg gennem Home Assistant: taend, sluk, hastighed (vaerdi i %), forvalg (vaerdi, fx auto), lysstyrke (%), drift eller blaeser. Hvad enheden kan, står i lager_iot_lokation_styring. Kraftige eller lange forvalg (boost, ude …) kræver bekraeft: true efter brugerens ja. Står i revisionsloggen.',
+  { navn: 'lager_ansvarlig_iot_styr', titel: 'Lageransvarlig: styr lys og ventilation', op: 'POST /iot/enheder/{id}/styr', alias: { id: 'enhedId' }, idempotent: true, aabenVerden: true,
+    beskrivelse: 'Overstyr et lys, en kontakt eller et ventilationsanlæg gennem Home Assistant. Bekræft med brugeren før du tænder, slukker eller ændrer: taend, sluk, hastighed (vaerdi i %), forvalg (vaerdi, fx auto), lysstyrke (%), drift eller blaeser. Hvad enheden kan, står i lager_iot_lokation_styring. Kraftige eller lange forvalg (boost, ude …) kræver bekraeft: true efter brugerens ja. Står i revisionsloggen.',
     kort: 'Lageransvarlig: sæt hastighed, forvalg eller lysstyrke på lys og ventilation.', eksempler: ['sæt ventilationen i værkstedet på 60 %', 'sæt anlægget på auto'],
     beskriv: { bekraeft: 'true, når brugeren har bekræftet et kraftigt eller langt forvalg (boost, ude …).' } },
   { navn: 'lager_ansvarlig_iot_alarm_kvitter', titel: 'Lageransvarlig: kvittér for alarm', op: 'POST /iot/alarmer/{id}/kvitter', alias: { id: 'alarmId' }, idempotent: true,

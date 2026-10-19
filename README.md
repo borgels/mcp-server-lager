@@ -55,7 +55,7 @@ npm run openapi:opdater -- https://lager.example.com   # eller: LAGER_BASE_URL=�
 npm test
 ```
 
-Øjebliksbilledet står i et offentligt repo: scriptet gør installationens egne eksempler neutrale og nægter at gemme et kort, der nævner en vært eller en mailadresse ud over `example.*`.
+Øjebliksbilledet står i et offentligt repo: scriptet gør installationens egne eksempler neutrale og nægter at gemme et kort, der nævner en vært eller en mailadresse ud over `example.*`, et forbudt navn (som hash i `scripts/neutral.ts`, så listen ikke selv nævner det) eller en person («hos Fornavn»). `test/openapi.test.ts` tjekker det samme.
 
 `test/openapi.test.ts` fejler, hvis et værktøj peger på en operation, der ikke findes, eller hvis kortet har en operation, der hverken har et værktøj eller en grund i `UDEN_VAERKTOEJ`.
 
