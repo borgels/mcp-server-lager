@@ -4,6 +4,14 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Merge queue: CI kører på køens midlertidige gren, før der merges.
+  merge_group:
+  workflow_dispatch:
+
+# En ny push til samme PR afbryder den forældede kørsel; main og merge-køen afbrydes aldrig.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -12,13 +20,16 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      # Inkl. test/openapi.test.ts: kataloget mod øjebliksbilledet openapi/lager.json.
       - run: npm test
       - run: npm run build
       - run: npm audit --omit=dev

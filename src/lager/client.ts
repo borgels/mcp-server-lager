@@ -11,6 +11,8 @@ export interface LagerClientOptions {
   fetchFn?: typeof fetch;
 }
 
+type Query = Record<string, string | number | boolean | null | undefined>;
+
 export class LagerApiError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -39,22 +41,31 @@ export class LagerClient {
     if (!this.user) throw new Error('Ingen bruger: X-MCP-User fra gatewayen eller LAGER_DEFAULT_USER');
   }
 
-  async get<T>(path: string, query: Record<string, string | number | boolean | null | undefined> = {}): Promise<T> {
+  /** Ét kald under /api/lager. En krop giver kaldet en Idempotency-Key. */
+  async request<T>(method: string, path: string, options: { query?: Query; body?: unknown } = {}): Promise<T> {
     const url = new URL(`${this.baseUrl}/api/lager${path}`);
-    for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
-    return this.send<T>('GET', url);
+    for (const [k, v] of Object.entries(options.query ?? {})) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
+    return this.send<T>(method, url, options.body);
+  }
+
+  async get<T>(path: string, query: Query = {}): Promise<T> {
+    return this.request<T>('GET', path, { query });
   }
 
   async post<T>(path: string, body: unknown): Promise<T> {
-    return this.send<T>('POST', new URL(`${this.baseUrl}/api/lager${path}`), body);
+    return this.request<T>('POST', path, { body });
   }
 
   async put<T>(path: string, body: unknown): Promise<T> {
-    return this.send<T>('PUT', new URL(`${this.baseUrl}/api/lager${path}`), body);
+    return this.request<T>('PUT', path, { body });
+  }
+
+  async patch<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>('PATCH', path, { body });
   }
 
   async delete<T>(path: string): Promise<T> {
-    return this.send<T>('DELETE', new URL(`${this.baseUrl}/api/lager${path}`));
+    return this.request<T>('DELETE', path);
   }
 
   private async send<T>(method: string, url: URL, body?: unknown): Promise<T> {

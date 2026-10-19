@@ -1,0 +1,4017 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Lager API (øjebliksbillede)",
+    "version": "2026-10-17"
+  },
+  "servers": [
+    {
+      "url": "https://lager.example.com/api/lager"
+    }
+  ],
+  "paths": {
+    "/aflever": {
+      "post": {
+        "summary": "Aflevér værktøj; skærmen siger hvor det skal stå",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "linjer": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kode": {
+                          "type": "string"
+                        },
+                        "skadet": {
+                          "type": "boolean"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "fotoId": {
+                          "type": "string"
+                        },
+                        "dele": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "Kun for et sæt: de dele, der er bekræftet med (afleveringens hak). Udelades: alle dele, der er med sættet, følger med."
+                        }
+                      },
+                      "required": [
+                        "kode"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "linjer"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ afleveret: [{ tag, plads }], karantaene, klargoering, ukendte, afvist }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/adgang": {
+      "get": {
+        "summary": "Grupperne, der giver adgang til lageret (rolle, knudepunkt, medlemmer, om de har brugt appen), og baggrundsopgavernes status. Med magic link (lokal: true) er grupperne tilladt-listen",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ lager, lokal?, grupper, kilder }"
+          }
+        }
+      },
+      "post": {
+        "summary": "Kun magic link: giv en mailadresse en rolle på lagerets selskab",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lager": {
+                    "type": "integer"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "rolle": {
+                    "type": "string",
+                    "enum": [
+                      "vaerktoejsbruger",
+                      "lageransvarlig",
+                      "kiosk"
+                    ]
+                  }
+                },
+                "required": [
+                  "email",
+                  "rolle"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fandtes allerede: { id, ny: false }"
+          },
+          "201": {
+            "description": "{ id, ny: true }"
+          },
+          "409": {
+            "description": "Adgangen styres i Entra"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Kun magic link: fjern en række fra tilladt-listen; uden adgang tilbage afsluttes personens sessioner",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ sessionerAfsluttet }"
+          },
+          "409": {
+            "description": "Adgangen styres i Entra"
+          }
+        }
+      }
+    },
+    "/ansvarlig/afgoer": {
+      "post": {
+        "summary": "Afgør karantæne eller klargøring: frigiv til lageret, eller kassér",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tag": {
+                    "type": "string"
+                  },
+                  "handling": {
+                    "type": "string",
+                    "enum": [
+                      "frigiv",
+                      "kasser"
+                    ]
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tag",
+                  "handling"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ enhed: Enhed }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/afregninger": {
+      "x-moduler": [
+        "leje_salg"
+      ],
+      "get": {
+        "summary": "Afregninger udlejer → køber med status",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "lukkede",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "1: også lukkede"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ afregninger }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/afregninger/{id}": {
+      "x-moduler": [
+        "leje_salg"
+      ],
+      "get": {
+        "summary": "Afregningen grupperet pr. sag med mangler",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Afregning"
+          }
+        }
+      }
+    },
+    "/ansvarlig/bestillinger": {
+      "x-moduler": [
+        "bestillinger"
+      ],
+      "get": {
+        "summary": "Bestillingslisten pr. leverandør og alle bestillinger",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ liste: [{ leverandoer, linjer }], bestillinger: Bestilling[] }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/bestillinger/{id}": {
+      "x-moduler": [
+        "bestillinger"
+      ],
+      "put": {
+        "summary": "Ret forventet dato på en bestilling",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "forventet": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "ÅÅÅÅ-MM-DD"
+                  }
+                },
+                "required": [
+                  "forventet"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ bestilling }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/bestillinger/send": {
+      "x-moduler": [
+        "bestillinger"
+      ],
+      "post": {
+        "summary": "Send listen for én leverandør til indkøb",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "leverandoer": {
+                    "type": "string"
+                  },
+                  "forventet": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ tekst, email, bestillinger }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/enheder": {
+      "get": {
+        "summary": "Enheder på lageret, filtreret",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "paa_lager",
+                "ude",
+                "karantaene",
+                "til_klargoering",
+                "til_service",
+                "savnet",
+                "kasseret",
+                "solgt"
+              ]
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Model-id"
+          },
+          {
+            "name": "soeg",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Søg i tag, navn og serienummer"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ enheder: Enhed[] }"
+          }
+        }
+      },
+      "post": {
+        "summary": "Opret enheder; antal > 1 giver fortløbende tags (og så ingen tag eller serienummer)",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "modelId": {
+                    "type": "integer"
+                  },
+                  "antal": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "tag": {
+                    "type": "string"
+                  },
+                  "serienummer": {
+                    "type": "string"
+                  },
+                  "koebsdato": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  },
+                  "koebspris": {
+                    "type": "number"
+                  },
+                  "leverandoer": {
+                    "type": "string"
+                  },
+                  "bilag": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "plads": {
+                    "type": "string"
+                  },
+                  "asbest": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "modelId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ enheder, tags }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/enheder/{tag}": {
+      "get": {
+        "summary": "Enheden med fotos, historik, lejeperioder og salg",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Enheddetalje"
+          }
+        }
+      },
+      "put": {
+        "summary": "Ret en enheds stamdata; null sletter et felt",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "modelId": {
+                    "type": "integer"
+                  },
+                  "serienummer": {
+                    "type": "string"
+                  },
+                  "koebsdato": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  },
+                  "koebspris": {
+                    "type": "number"
+                  },
+                  "leverandoer": {
+                    "type": "string"
+                  },
+                  "bilag": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "plads": {
+                    "type": "string"
+                  },
+                  "asbest": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ enhed }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/etiketter/pladser": {
+      "get": {
+        "summary": "Hyldeetiketter som PDF (?zone=A, eller alle særlige zoner)",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "zone",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF"
+          }
+        }
+      }
+    },
+    "/ansvarlig/forbrug": {
+      "get": {
+        "summary": "Udtag af forbrugsvarer i perioden",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "fra",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "ÅÅÅÅ-MM-DD"
+            },
+            "description": "Fra og med"
+          },
+          {
+            "name": "til",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "ÅÅÅÅ-MM-DD"
+            },
+            "description": "Til og med"
+          },
+          {
+            "name": "annullerede",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "1: også annullerede"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ udtag }"
+          }
+        }
+      },
+      "post": {
+        "summary": "Et udtag på vegne af en person, evt. bagudrettet",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "forbrugsvareId": {
+                    "type": "integer"
+                  },
+                  "antal": {
+                    "type": "integer"
+                  },
+                  "projektId": {
+                    "type": "integer"
+                  },
+                  "personId": {
+                    "type": "integer"
+                  },
+                  "dato": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  },
+                  "begrundelse": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "forbrugsvareId",
+                  "antal",
+                  "projektId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ udtag }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/forbrug/{id}": {
+      "delete": {
+        "summary": "Annullér et udtag",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "begrundelse": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "begrundelse"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/forbrugsvarer": {
+      "get": {
+        "summary": "Forbrugsvarer med beholdning, minimum, kost- og salgspris",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ varer }"
+          }
+        }
+      },
+      "post": {
+        "summary": "Ny forbrugsvare med første pris",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "varenr": {
+                    "type": "string"
+                  },
+                  "leverandoer": {
+                    "type": "string"
+                  },
+                  "gruppe": {
+                    "type": "string",
+                    "enum": [
+                      "forbrug",
+                      "vaerne",
+                      "arbtoj",
+                      "vaerktoej"
+                    ]
+                  },
+                  "enhed": {
+                    "type": "string"
+                  },
+                  "kostpris": {
+                    "type": "number"
+                  },
+                  "salgspris": {
+                    "type": "number"
+                  },
+                  "gyldigFra": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  }
+                },
+                "required": [
+                  "navn",
+                  "gruppe"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ vare }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/forbrugsvarer/{id}": {
+      "put": {
+        "summary": "Ret en forbrugsvare; minimum og talt (optalt beholdning) retter beholdningen",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": "string"
+                  },
+                  "varenr": {
+                    "type": "string"
+                  },
+                  "leverandoer": {
+                    "type": "string"
+                  },
+                  "gruppe": {
+                    "type": "string",
+                    "enum": [
+                      "forbrug",
+                      "vaerne",
+                      "arbtoj",
+                      "vaerktoej"
+                    ]
+                  },
+                  "enhed": {
+                    "type": "string"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  },
+                  "minimum": {
+                    "type": "integer"
+                  },
+                  "talt": {
+                    "type": "integer"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ vare }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/forbrugsvarer/{id}/bevaegelser": {
+      "get": {
+        "summary": "Beholdningens historik på én vare: modtaget, udtag, optælling, regulering",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ bevaegelser }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/forbrugsvarer/modtag": {
+      "post": {
+        "summary": "Modtag en levering; bestilte varer lægges til side til dem, der venter",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "bilag": {
+                    "type": "string"
+                  },
+                  "leverandoer": {
+                    "type": "string"
+                  },
+                  "dato": {
+                    "type": "string"
+                  },
+                  "linjer": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "forbrugsvareId": {
+                          "type": "integer"
+                        },
+                        "antal": {
+                          "type": "integer"
+                        },
+                        "kostpris": {
+                          "type": "number"
+                        },
+                        "ny": {
+                          "type": "object",
+                          "properties": {
+                            "navn": {
+                              "type": "string"
+                            },
+                            "gruppe": {
+                              "type": "string"
+                            },
+                            "varenr": {
+                              "type": "string"
+                            },
+                            "enhed": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "antal"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "linjer"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ bilag, leverandoer, dato, linjer: [{ vareId, navn, antal, beholdning, reserveret, klarTil }], klar }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/intern": {
+      "post": {
+        "summary": "Lagerarbejde uden beregning: til_service, udlaan eller flyt (plads)",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "slags": {
+                    "type": "string",
+                    "enum": [
+                      "til_service",
+                      "udlaan",
+                      "flyt"
+                    ]
+                  },
+                  "linjer": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "sted": {
+                    "type": "string"
+                  },
+                  "begrundelse": {
+                    "type": "string"
+                  },
+                  "plads": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "slags",
+                  "linjer",
+                  "begrundelse"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ registreret, afvist, ukendte }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/koe": {
+      "get": {
+        "summary": "Det, der kræver afgørelse: ukendte mærker, karantæne, klargøring, afstemning",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Kø"
+          }
+        }
+      }
+    },
+    "/ansvarlig/modeller": {
+      "get": {
+        "summary": "Modeller med antal og dagens pris (inkl. kostpris)",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "inaktive",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "1: også inaktive modeller"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ modeller }"
+          }
+        }
+      },
+      "post": {
+        "summary": "Ny model med første prisversion",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "fabrikat": {
+                    "type": "string"
+                  },
+                  "varenr": {
+                    "type": "string"
+                  },
+                  "kategori": {
+                    "type": "string"
+                  },
+                  "leverandoer": {
+                    "type": "string"
+                  },
+                  "asbestStandard": {
+                    "type": "boolean"
+                  },
+                  "kostpris": {
+                    "type": "number"
+                  },
+                  "salgspris": {
+                    "type": "number"
+                  },
+                  "dagssats": {
+                    "type": "number"
+                  },
+                  "gyldigFra": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  }
+                },
+                "required": [
+                  "navn",
+                  "kategori"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ model }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/modeller/{id}": {
+      "get": {
+        "summary": "Modellen med fotos, dokumenter, prisversioner og enheder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Modeldetalje"
+          }
+        }
+      },
+      "put": {
+        "summary": "Ret stamdata, værnemidler, produktside",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": "string"
+                  },
+                  "fabrikat": {
+                    "type": "string"
+                  },
+                  "varenr": {
+                    "type": "string"
+                  },
+                  "kategori": {
+                    "type": "string"
+                  },
+                  "leverandoer": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "eftersynIntervalMdr": {
+                    "type": "integer"
+                  },
+                  "levetidAar": {
+                    "type": "integer"
+                  },
+                  "asbestStandard": {
+                    "type": "boolean"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  },
+                  "vaernemidler": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "produktside": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ model }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/modeller/{id}/pakkeliste": {
+      "get": {
+        "summary": "Pakkelisten for en sætmodel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ pakkeliste }"
+          }
+        }
+      },
+      "put": {
+        "summary": "Sæt pakkelisten",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "linjer": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "delModelId": {
+                          "type": "integer"
+                        },
+                        "tekst": {
+                          "type": "string"
+                        },
+                        "antal": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ pakkeliste }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/modtag": {
+      "post": {
+        "summary": "Registrér en enhed på lageret med hjemmeplads",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "tag": {
+                    "type": "string"
+                  },
+                  "plads": {
+                    "type": "string"
+                  },
+                  "dagssats": {
+                    "type": "number"
+                  },
+                  "asbest": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "tag"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ enhed }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/moduler": {
+      "get": {
+        "summary": "Installationens moduler: til/fra, hvad de kræver, om driften har låst dem, og om du må rette",
+        "responses": {
+          "200": {
+            "description": "{ moduler, maaRette }"
+          }
+        }
+      },
+      "put": {
+        "summary": "Slå et modul til eller fra for hele installationen. Kræver lageransvarlig på alle lagre; 409 når LAGER_MODULER har låst det",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ moduler, maaRette }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/optaelling": {
+      "get": {
+        "summary": "Lagerets optællinger, nyeste først",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ optaellinger }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "optaellinger": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "lagerId": {
+                            "type": "integer"
+                          },
+                          "omraade": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "aaben",
+                              "lukket"
+                            ]
+                          },
+                          "startetAf": {
+                            "type": "string"
+                          },
+                          "startet": {
+                            "type": "string"
+                          },
+                          "lukketAf": {
+                            "type": "string"
+                          },
+                          "lukket": {
+                            "type": "string"
+                          },
+                          "resultat": {
+                            "description": "Resultatet, når optællingen er lukket"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Start en optælling af et område («Reol B») eller hele lageret",
+        "description": "Der kan kun være én åben optælling pr. lager.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "omraade": {
+                    "type": "string",
+                    "description": "Fx «Reol B» eller «A-12»; udelades for hele lageret"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ optaelling }"
+          },
+          "409": {
+            "description": "Der er allerede en åben optælling"
+          }
+        }
+      }
+    },
+    "/ansvarlig/optaelling/{id}": {
+      "get": {
+        "summary": "Hvor står optællingen: scannet, mangler, afvigelser, og om den kan lukkes",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "optaelling": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "lagerId": {
+                          "type": "integer"
+                        },
+                        "omraade": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "aaben",
+                            "lukket"
+                          ]
+                        },
+                        "startetAf": {
+                          "type": "string"
+                        },
+                        "startet": {
+                          "type": "string"
+                        },
+                        "lukketAf": {
+                          "type": "string"
+                        },
+                        "lukket": {
+                          "type": "string"
+                        },
+                        "resultat": {
+                          "description": "Resultatet, når optællingen er lukket"
+                        }
+                      }
+                    },
+                    "forventet": {
+                      "type": "integer"
+                    },
+                    "kanLukkes": {
+                      "type": "boolean"
+                    },
+                    "tal": {
+                      "type": "object",
+                      "properties": {
+                        "fundet": {
+                          "type": "integer"
+                        },
+                        "forkert_plads": {
+                          "type": "integer"
+                        },
+                        "ude": {
+                          "type": "integer"
+                        },
+                        "savnes": {
+                          "type": "integer"
+                        },
+                        "uventet": {
+                          "type": "integer"
+                        },
+                        "ukendt": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "linjer": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "kode": {
+                            "type": "string"
+                          },
+                          "tag": {
+                            "type": "string"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "udfald": {
+                            "type": "string",
+                            "enum": [
+                              "fundet",
+                              "forkert_plads",
+                              "ude",
+                              "savnes",
+                              "uventet",
+                              "ukendt"
+                            ]
+                          },
+                          "forventetPlads": {
+                            "type": "string"
+                          },
+                          "fundetPlads": {
+                            "type": "string"
+                          },
+                          "hos": {
+                            "type": "string"
+                          },
+                          "projekt": {
+                            "type": "string"
+                          },
+                          "koebspris": {
+                            "type": "number"
+                          },
+                          "afgoerelse": {
+                            "type": "string"
+                          },
+                          "afgoerelseData": {},
+                          "ts": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "savnes": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Enhed"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ansvarlig/optaelling/{id}/afgoer": {
+      "post": {
+        "summary": "Afgør én afvigelse i optællingen",
+        "description": "slags: savnet | hos_person (personId, projektId) | kasseret (note) | oprettet (modelId) | ikke_vores | plads_flyttet | ok. Afgørelsen udføres først, når optællingen lukkes.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "linjeId": {
+                    "type": "integer"
+                  },
+                  "afgoerelse": {
+                    "type": "object",
+                    "properties": {
+                      "slags": {
+                        "type": "string",
+                        "enum": [
+                          "savnet",
+                          "hos_person",
+                          "kasseret",
+                          "oprettet",
+                          "ikke_vores",
+                          "plads_flyttet",
+                          "ok"
+                        ]
+                      },
+                      "personId": {
+                        "type": "integer"
+                      },
+                      "projektId": {
+                        "type": "integer"
+                      },
+                      "note": {
+                        "type": "string"
+                      },
+                      "modelId": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "slags"
+                    ]
+                  }
+                },
+                "required": [
+                  "linjeId",
+                  "afgoerelse"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ linje: { id, afgoerelse } }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/optaelling/{id}/goer-op": {
+      "post": {
+        "summary": "Gør op: det, der ikke blev scannet, bliver «savnes»-linjer, der skal afgøres",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "optaelling": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "lagerId": {
+                          "type": "integer"
+                        },
+                        "omraade": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "aaben",
+                            "lukket"
+                          ]
+                        },
+                        "startetAf": {
+                          "type": "string"
+                        },
+                        "startet": {
+                          "type": "string"
+                        },
+                        "lukketAf": {
+                          "type": "string"
+                        },
+                        "lukket": {
+                          "type": "string"
+                        },
+                        "resultat": {
+                          "description": "Resultatet, når optællingen er lukket"
+                        }
+                      }
+                    },
+                    "forventet": {
+                      "type": "integer"
+                    },
+                    "kanLukkes": {
+                      "type": "boolean"
+                    },
+                    "tal": {
+                      "type": "object",
+                      "properties": {
+                        "fundet": {
+                          "type": "integer"
+                        },
+                        "forkert_plads": {
+                          "type": "integer"
+                        },
+                        "ude": {
+                          "type": "integer"
+                        },
+                        "savnes": {
+                          "type": "integer"
+                        },
+                        "uventet": {
+                          "type": "integer"
+                        },
+                        "ukendt": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "linjer": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "kode": {
+                            "type": "string"
+                          },
+                          "tag": {
+                            "type": "string"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "udfald": {
+                            "type": "string",
+                            "enum": [
+                              "fundet",
+                              "forkert_plads",
+                              "ude",
+                              "savnes",
+                              "uventet",
+                              "ukendt"
+                            ]
+                          },
+                          "forventetPlads": {
+                            "type": "string"
+                          },
+                          "fundetPlads": {
+                            "type": "string"
+                          },
+                          "hos": {
+                            "type": "string"
+                          },
+                          "projekt": {
+                            "type": "string"
+                          },
+                          "koebspris": {
+                            "type": "number"
+                          },
+                          "afgoerelse": {
+                            "type": "string"
+                          },
+                          "afgoerelseData": {},
+                          "ts": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "savnes": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Enhed"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ansvarlig/optaelling/{id}/luk": {
+      "post": {
+        "summary": "Luk optællingen og udfør afgørelserne; kræver at alle afvigelser har et svar",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ optaelling }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "optaelling": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "lagerId": {
+                          "type": "integer"
+                        },
+                        "omraade": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "aaben",
+                            "lukket"
+                          ]
+                        },
+                        "startetAf": {
+                          "type": "string"
+                        },
+                        "startet": {
+                          "type": "string"
+                        },
+                        "lukketAf": {
+                          "type": "string"
+                        },
+                        "lukket": {
+                          "type": "string"
+                        },
+                        "resultat": {
+                          "description": "Resultatet, når optællingen er lukket"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Afvigelser uden afgørelse"
+          }
+        }
+      }
+    },
+    "/ansvarlig/optaelling/{id}/scan": {
+      "post": {
+        "summary": "Ét scan på reolen; samme kode igen opdaterer linjen",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "kode": {
+                    "type": "string",
+                    "description": "Mærke (tag) eller serienummer"
+                  },
+                  "plads": {
+                    "type": "string",
+                    "description": "Pladsen, hvor det står, fx A-12-3"
+                  }
+                },
+                "required": [
+                  "kode"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ linje: { id, kode, tag, udfald }, enhed: Enhed | null }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/overblik": {
+      "get": {
+        "summary": "Lageransvarlig: tal, det der kræver handling, seneste bevægelser",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ tal, handlinger, seneste, optaellinger, lavBeholdning }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/perioder": {
+      "x-moduler": [
+        "leje_salg"
+      ],
+      "get": {
+        "summary": "Lejeperioder pr. enhed eller pr. måned",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fra",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "til",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "aabne",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "1: kun åbne perioder"
+          },
+          {
+            "name": "annullerede",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "1: også annullerede"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ perioder }"
+          }
+        }
+      },
+      "post": {
+        "summary": "En manuel lejeperiode: historik eller en manglende registrering",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tag": {
+                    "type": "string"
+                  },
+                  "projektId": {
+                    "type": "integer"
+                  },
+                  "personId": {
+                    "type": "integer"
+                  },
+                  "fra": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  },
+                  "til": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  },
+                  "begrundelse": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tag",
+                  "projektId",
+                  "fra",
+                  "begrundelse"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ periode }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/perioder/{id}": {
+      "x-moduler": [
+        "leje_salg"
+      ],
+      "put": {
+        "summary": "Ret en lejeperiode",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "fra": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  },
+                  "til": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  },
+                  "projektId": {
+                    "type": "integer"
+                  },
+                  "personId": {
+                    "type": "integer"
+                  },
+                  "begrundelse": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "begrundelse"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ periode }"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Annullér en lejeperiode",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "begrundelse": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "begrundelse"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/pladser": {
+      "get": {
+        "summary": "Zoner og pladser (Zone-Reol-Hylde) med antal enheder; standardzonerne oprettes",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ zoner, pladser }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/pladser/reoler": {
+      "post": {
+        "summary": "Ny reol med hylder: A-12-1 … A-12-N",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "zone": {
+                    "type": "string"
+                  },
+                  "reol": {
+                    "type": "integer"
+                  },
+                  "hylder": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "zone",
+                  "reol"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ pladser }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/pladser/zoner": {
+      "post": {
+        "summary": "Ny zone",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "slags": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "navn"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ zone }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/pluk": {
+      "x-moduler": [
+        "booking"
+      ],
+      "get": {
+        "summary": "Pluklisten: bookinger, der skal stå ved døren den dag",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "dato",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "ÅÅÅÅ-MM-DD"
+            },
+            "description": "Standard: i dag"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ dato, bookinger }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "dato": {
+                      "type": "string"
+                    },
+                    "bookinger": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "projektId": {
+                            "type": "integer"
+                          },
+                          "projekt": {
+                            "type": "string"
+                          },
+                          "personId": {
+                            "type": "integer"
+                          },
+                          "person": {
+                            "type": "string"
+                          },
+                          "kategori": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "tag": {
+                            "type": "string"
+                          },
+                          "enhed": {
+                            "type": "string"
+                          },
+                          "antal": {
+                            "type": "integer"
+                          },
+                          "fra": {
+                            "type": "string"
+                          },
+                          "til": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "aaben",
+                              "klar",
+                              "udleveret",
+                              "annulleret"
+                            ]
+                          },
+                          "note": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ansvarlig/politik": {
+      "x-moduler": [
+        "leje_salg"
+      ],
+      "get": {
+        "summary": "Selskabets prispolitik, alle versioner (læs; nye versioner sættes i appen)",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ politikker }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/priser": {
+      "x-moduler": [
+        "leje_salg"
+      ],
+      "get": {
+        "summary": "Priser og historik (?model=|tag=|vare=), mangler pris uden filter",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ priser }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/saet/{tag}": {
+      "get": {
+        "summary": "Sættet med priser på delene",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sæt"
+          }
+        }
+      }
+    },
+    "/ansvarlig/saet/{tag}/dele": {
+      "post": {
+        "summary": "Tilføj en del til sættet",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "kode": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kode"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Sæt"
+          }
+        }
+      }
+    },
+    "/ansvarlig/saet/{tag}/dele/{del}": {
+      "delete": {
+        "summary": "Tag en del ud af sættet",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "del",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sæt"
+          }
+        }
+      }
+    },
+    "/ansvarlig/saet/{tag}/oploes": {
+      "post": {
+        "summary": "Opløs sættet: alle dele bliver almindelige enheder; kassen består",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ dele }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/ukendte/{id}": {
+      "post": {
+        "summary": "Afklar et ukendt mærke fra køen: { tag } var den enhed, { tag: null } afviser",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tag": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "tag"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          }
+        }
+      }
+    },
+    "/auth/forny": {
+      "post": {
+        "summary": "Forlæng sessionen (samme session, nyt token)",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ token, exp }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    },
+                    "exp": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sessionen er afsluttet"
+          }
+        }
+      }
+    },
+    "/auth/indloes": {
+      "post": {
+        "summary": "Brug et login-link (én gang, inden 15 minutter) og få en session",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sessionen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    },
+                    "exp": {
+                      "type": "integer"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "navn": {
+                      "type": "string"
+                    },
+                    "til": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Linket er brugt, udløbet eller ugyldigt"
+          },
+          "429": {
+            "description": "For mange forsøg"
+          }
+        }
+      }
+    },
+    "/auth/link": {
+      "post": {
+        "summary": "Bed om et login-link på mail. Samme svar, uanset om adressen har adgang",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "til": {
+                    "type": "string",
+                    "description": "Stien i appen efter login"
+                  }
+                },
+                "required": [
+                  "email"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          },
+          "422": {
+            "description": "Ugyldig mailadresse"
+          },
+          "429": {
+            "description": "For mange forsøg"
+          }
+        }
+      }
+    },
+    "/auth/log-ud": {
+      "post": {
+        "summary": "Log ud: sessionen kan ikke bruges mere",
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          }
+        }
+      }
+    },
+    "/bestillinger": {
+      "x-moduler": [
+        "bestillinger"
+      ],
+      "get": {
+        "summary": "Mine bestillinger: klar, på vej, hentet",
+        "responses": {
+          "200": {
+            "description": "{ bestillinger: Bestilling[] }"
+          }
+        }
+      },
+      "post": {
+        "summary": "Bestil forbrugsvarer via indkøb",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "projektId": {
+                    "type": "integer"
+                  },
+                  "linjer": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "vareId": {
+                          "type": "integer"
+                        },
+                        "antal": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "vareId",
+                        "antal"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "projektId",
+                  "linjer"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ bestillinger }"
+          }
+        }
+      }
+    },
+    "/bestillinger/{id}": {
+      "x-moduler": [
+        "bestillinger"
+      ],
+      "get": {
+        "summary": "Én bestilling (din egen, eller lagerets som lageransvarlig)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ bestilling: Bestilling }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bestilling": {
+                      "$ref": "#/components/schemas/Bestilling"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Fortryd en bestilling (indtil den er klar)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ ok: true }"
+          }
+        }
+      }
+    },
+    "/bestillinger/{id}/hent": {
+      "x-moduler": [
+        "bestillinger"
+      ],
+      "post": {
+        "summary": "Afhentning: udtaget koster på sagen, beholdningen er ikke rørt",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "{ udtag }"
+          }
+        }
+      }
+    },
+    "/bookinger": {
+      "x-moduler": [
+        "booking"
+      ],
+      "get": {
+        "summary": "Dine bookinger, eller projektets åbne bookinger med ?projekt=",
+        "parameters": [
+          {
+            "name": "projekt",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Projekt-id: projektets åbne bookinger i stedet for dine egne"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ bookinger }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bookinger": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "projektId": {
+                            "type": "integer"
+                          },
+                          "projekt": {
+                            "type": "string"
+                          },
+                          "personId": {
+                            "type": "integer"
+                          },
+                          "person": {
+                            "type": "string"
+                          },
+                          "kategori": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "tag": {
+                            "type": "string"
+                          },
+                          "enhed": {
+                            "type": "string"
+                          },
+                          "antal": {
+                            "type": "integer"
+                          },
+                          "fra": {
+                            "type": "string"
+                          },
+                          "til": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "aaben",
+                              "klar",
+                              "udleveret",
+                              "annulleret"
+                            ]
+                          },
+                          "note": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Book værktøj til et projekt i en periode",
+        "description": "Book en kategori, en model eller én bestemt enhed (tag). Se /tilgaengelighed først: en booking ud over det ledige afvises.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "projektId": {
+                    "type": "integer"
+                  },
+                  "kategori": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "tag": {
+                    "type": "string"
+                  },
+                  "antal": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "fra": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  },
+                  "til": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "projektId",
+                  "fra",
+                  "til"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ booking }"
+          },
+          "422": {
+            "description": "Ugyldig periode, eller ikke nok ledige"
+          }
+        }
+      }
+    },
+    "/bookinger/{id}": {
+      "x-moduler": [
+        "booking"
+      ],
+      "patch": {
+        "summary": "Skift status på en booking",
+        "description": "Ejeren må annullere sin egen; «klar» og «aaben» er den lageransvarliges (pluklisten). «udleveret» sættes kun af en udlevering.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "klar",
+                      "aaben",
+                      "annulleret"
+                    ]
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ booking }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "booking": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "projektId": {
+                          "type": "integer"
+                        },
+                        "projekt": {
+                          "type": "string"
+                        },
+                        "personId": {
+                          "type": "integer"
+                        },
+                        "person": {
+                          "type": "string"
+                        },
+                        "kategori": {
+                          "type": "string"
+                        },
+                        "model": {
+                          "type": "string"
+                        },
+                        "tag": {
+                          "type": "string"
+                        },
+                        "enhed": {
+                          "type": "string"
+                        },
+                        "antal": {
+                          "type": "integer"
+                        },
+                        "fra": {
+                          "type": "string"
+                        },
+                        "til": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "aaben",
+                            "klar",
+                            "udleveret",
+                            "annulleret"
+                          ]
+                        },
+                        "note": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dokumenter/{id}": {
+      "get": {
+        "summary": "Et dokument på en model (PDF eller billede), for alle med adgang til lageret",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Filen"
+          }
+        }
+      }
+    },
+    "/flyt": {
+      "x-moduler": [
+        "projekter"
+      ],
+      "post": {
+        "summary": "Flyt udlejet værktøj til et andet projekt uden om lageret",
+        "description": "Custody uændret; lejen skifter projekt fra i dag. Egne emner; lageransvarlig på lagerId må flytte alt.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "koder": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "projektId": {
+                    "type": "integer"
+                  },
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "koder",
+                  "projektId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ flyttet: string[], afvist: [{ tag, grund }], dagsleje }"
+          }
+        }
+      }
+    },
+    "/forbrug": {
+      "post": {
+        "summary": "Køb forbrugsvarer til projektet; bestil det, der er udsolgt",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "projektId": {
+                    "type": "integer"
+                  },
+                  "linjer": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "vareId": {
+                          "type": "integer"
+                        },
+                        "antal": {
+                          "type": "integer"
+                        },
+                        "bestil": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "vareId",
+                        "antal"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "projektId",
+                  "linjer"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ udtag, bestillinger, afvist, sum }"
+          }
+        }
+      }
+    },
+    "/forbrugsvarer": {
+      "get": {
+        "summary": "Kataloget af forbrugsvarer med beholdning og salgspris",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ varer: Katalogvare[] }"
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "summary": "Hvem er du, dine lagre og deres tal, og installationens moduler",
+        "responses": {
+          "200": {
+            "description": "Person, konto, lagre med roller, moduler (id → til), tal pr. lager"
+          }
+        }
+      }
+    },
+    "/mine": {
+      "get": {
+        "summary": "Værktøj, personen har ude, grupperet pr. projekt",
+        "responses": {
+          "200": {
+            "description": "{ antal, dagsleje, projekter: [{ projektId, projekt, enheder: Enhed[], dagsleje }] }"
+          }
+        }
+      }
+    },
+    "/modeller/{id}": {
+      "get": {
+        "summary": "Modellen for brugeren: navn, fotos, dokumenter, værnemidler (ingen priser)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Model med billeder, dokumenter og værnemidler"
+          }
+        }
+      }
+    },
+    "/opslag/{kode}": {
+      "get": {
+        "summary": "Ét scan: hvad er det, hvem har det, sikkerhed og dokumenter",
+        "parameters": [
+          {
+            "name": "kode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ afgoerelse, enhed: Enhed | null, bevaegelser, model: { vaernemidler, dokumenter, produktside } | null, plads: string | null (hyldeetiketten /p/<kode>) }"
+          }
+        }
+      }
+    },
+    "/overtag": {
+      "post": {
+        "summary": "Overtag ét emne fra en kollega på pladsen (foto påkrævet)",
+        "description": "projektId kræves, når modulet projekter er til, og udelades, når det er fra.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "kode": {
+                    "type": "string"
+                  },
+                  "projektId": {
+                    "type": "integer"
+                  },
+                  "fotoId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kode",
+                  "fotoId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ enhed }"
+          }
+        }
+      }
+    },
+    "/pladser/{kode}": {
+      "get": {
+        "summary": "Hyldeetiketten: pladsen og enhederne, der hører til dér",
+        "parameters": [
+          {
+            "name": "kode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ plads: { id, code, navn, zone, zoneNavn, slags, reol, hylde, enheder, lager: { id, code, navn } }, enheder: Enhed[] }"
+          }
+        }
+      }
+    },
+    "/projekter": {
+      "get": {
+        "summary": "Projekter, personen kan afhente til og booke på",
+        "responses": {
+          "200": {
+            "description": "{ projekter: Projekt[] }"
+          }
+        }
+      }
+    },
+    "/saet/{tag}": {
+      "get": {
+        "summary": "Sættets indhold for brugeren: dele med/uden for sættet, pakkeliste, hvad der mangler",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ erSaet, delAf, dele, pakkeliste, mangler }"
+          }
+        }
+      }
+    },
+    "/tilgaengelighed": {
+      "x-moduler": [
+        "booking"
+      ],
+      "get": {
+        "summary": "Hvad kan bookes i perioden: kategorier med antal og ledige, og modellerne under hver",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "fra",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "ÅÅÅÅ-MM-DD"
+            },
+            "description": "Standard: i dag"
+          },
+          {
+            "name": "til",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "ÅÅÅÅ-MM-DD"
+            },
+            "description": "Standard: fra"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ fra, til, kategorier }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "fra": {
+                      "type": "string"
+                    },
+                    "til": {
+                      "type": "string"
+                    },
+                    "kategorier": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kategori": {
+                            "type": "string"
+                          },
+                          "ialt": {
+                            "type": "integer"
+                          },
+                          "ledige": {
+                            "type": "integer"
+                          },
+                          "modeller": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "model": {
+                                  "type": "string"
+                                },
+                                "ialt": {
+                                  "type": "integer"
+                                },
+                                "ledige": {
+                                  "type": "integer"
+                                },
+                                "dagssats": {
+                                  "type": "number"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tjek-ud": {
+      "post": {
+        "summary": "Tag værktøj med ud til et projekt, eller uden projekt, når modulet projekter er fra",
+        "description": "projektId kræves, når modulet projekter er til (se /me → moduler), og afvises, når det er fra: så står værktøjet hos dig uden projekt og uden leje. laaner: udlån videre til en person uden konto, kun når modulet projekter er fra (ellers 422); du har stadig ansvaret.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "projektId": {
+                    "type": "integer"
+                  },
+                  "linjer": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Kurvlinje"
+                    }
+                  },
+                  "retur": {
+                    "type": "string",
+                    "description": "i_dag | i_morgen | om_14_dage | ingen | ÅÅÅÅ-MM-DD"
+                  },
+                  "fotoId": {
+                    "type": "string"
+                  },
+                  "laaner": {
+                    "$ref": "#/components/schemas/Laaner"
+                  }
+                },
+                "required": [
+                  "linjer"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ udleveret, overtaget, ukendte, afvist, dagsleje }"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Enhed": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "kategori": {
+            "type": "string"
+          },
+          "serienummer": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "paa_lager",
+              "ude",
+              "karantaene",
+              "til_klargoering",
+              "kasseret",
+              "til_service",
+              "savnet",
+              "solgt"
+            ]
+          },
+          "hos": {
+            "type": "string"
+          },
+          "hosPersonId": {
+            "type": "integer"
+          },
+          "projektId": {
+            "type": "integer"
+          },
+          "projekt": {
+            "type": "string"
+          },
+          "siden": {
+            "type": "string"
+          },
+          "forventetRetur": {
+            "type": "string"
+          },
+          "plads": {
+            "type": "string"
+          },
+          "lager": {
+            "type": "string"
+          },
+          "dagssats": {
+            "type": "number"
+          },
+          "asbest": {
+            "type": "boolean"
+          },
+          "modelId": {
+            "type": "integer"
+          },
+          "foto": {
+            "type": "string"
+          },
+          "formaal": {
+            "type": "string"
+          },
+          "laaner": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LaanerVist"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "Laaner": {
+        "type": "object",
+        "properties": {
+          "navn": {
+            "type": "string"
+          },
+          "telefon": {
+            "type": "string"
+          },
+          "mail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "navn"
+        ]
+      },
+      "LaanerVist": {
+        "type": "object",
+        "properties": {
+          "navn": {
+            "type": "string"
+          },
+          "telefon": {
+            "type": "string"
+          },
+          "mail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "navn"
+        ],
+        "description": "Navnet ser alle. Telefon og mail kun den, der lånte ud, og den lageransvarlige."
+      },
+      "Projekt": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "sagsnummer": {
+            "type": "string"
+          },
+          "kanAfhente": {
+            "type": "boolean"
+          },
+          "kanBooke": {
+            "type": "boolean"
+          },
+          "fra": {
+            "type": "string"
+          },
+          "til": {
+            "type": "string"
+          },
+          "ude": {
+            "type": "integer"
+          }
+        }
+      },
+      "Vaernemidler": {
+        "type": "object",
+        "properties": {
+          "koder": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "briller",
+                "hoerevaern",
+                "handsker",
+                "aandedraetsvaern",
+                "sikkerhedssko",
+                "hjelm",
+                "visir",
+                "stoevudsugning"
+              ]
+            }
+          },
+          "standard": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Dokument": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "slags": {
+            "type": "string",
+            "enum": [
+              "datablad",
+              "manual",
+              "sikkerhed",
+              "attest",
+              "andet"
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "kilde": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          }
+        }
+      },
+      "Bestilling": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "vareId": {
+            "type": "integer"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "antal": {
+            "type": "integer"
+          },
+          "enhed": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "bestilt",
+              "sendt",
+              "klar",
+              "hentet",
+              "til_lager",
+              "annulleret"
+            ]
+          },
+          "person": {
+            "type": "string"
+          },
+          "projekt": {
+            "type": "string"
+          },
+          "sagsnummer": {
+            "type": "string"
+          },
+          "forventet": {
+            "type": "string"
+          },
+          "leverandoer": {
+            "type": "string"
+          }
+        }
+      },
+      "Katalogvare": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "varenr": {
+            "type": "string"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "gruppe": {
+            "type": "string"
+          },
+          "enhed": {
+            "type": "string"
+          },
+          "beholdning": {
+            "type": "integer"
+          },
+          "salgspris": {
+            "type": "number"
+          }
+        }
+      },
+      "Kurvlinje": {
+        "type": "object",
+        "properties": {
+          "kode": {
+            "type": "string"
+          },
+          "overtag": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kode"
+        ]
+      },
+      "Fejl": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

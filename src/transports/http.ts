@@ -1,6 +1,7 @@
 import { createServer as createNodeServer } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { createServer as createMcpServer } from '../server.js';
+import { createServerMedModuler } from '../server.js';
+import { ModulCache } from '../lager/moduler.js';
 import {
   assertAllowedOrigin,
   assertAuthorized,
@@ -14,6 +15,8 @@ import {
 import { assertHttpStartupConfig, assertLagerBaseUrl } from './startup.js';
 
 const config = getHttpConfig();
+// Modulerne gælder hele installationen: én cache for processen, hentet med den første brugers kald.
+const moduler = new ModulCache();
 let baseUrl: string;
 
 try {
@@ -62,7 +65,7 @@ const httpServer = createNodeServer(async (req, res) => {
     const forwarded = req.headers['x-mcp-user'];
     const user = typeof forwarded === 'string' && forwarded.trim() ? forwarded.trim() : undefined;
     if (!user) throw new HttpRequestError(401, 'X-MCP-User mangler');
-    const mcpServer = createMcpServer({ clientOptions: { user } });
+    const mcpServer = await createServerMedModuler({ clientOptions: { user }, moduler });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });

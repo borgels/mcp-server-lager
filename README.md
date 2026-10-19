@@ -8,11 +8,36 @@ Bag en autentificerende MCP-gateway er brugeren verificeret af Entra og medlem a
 
 ## Tools
 
-**Læs (altid på):** `lager_me`, `lager_projekter`, `lager_mine`, `lager_opslag`, `lager_model`, `lager_forbrugsvarer`, `lager_bestillinger`, `lager_bookinger`, og for den lageransvarlige `lager_ansvarlig_overblik`, `_modeller`, `_enheder`, `_forbrugsvarer`, `_bestillinger`, `_perioder`, `_afregninger`, `_koe`. `lager_search_capabilities` er kortet.
+Navn, titel og beskrivelse er håndplukket i `src/tools/katalog.ts`, så en model kan finde og forstå værktøjerne. Parametre, typer, påkrævede felter og moduler kommer fra lager-API'ets OpenAPI (se nedenfor). `lager_search_capabilities` er kortet.
 
-**Skriv (opt-in via `LAGER_ENABLE_WRITES=true`):** `lager_tjek_ud`, `lager_aflever`, `lager_flyt_projekt`, `lager_forbrug`, `lager_bestil`, `lager_bestilling_hent`, `lager_bestilling_fortryd`, `lager_ansvarlig_modtag_levering`, `lager_ansvarlig_send_bestillingsliste`. Hver skrivning får sin egen `Idempotency-Key`.
+**Læs (altid på):** `lager_me`, `lager_projekter`, `lager_mine`, `lager_opslag`, `lager_plads`, `lager_model`, `lager_saet`, `lager_forbrugsvarer`, `lager_bestillinger`, `lager_bookinger`, `lager_tilgaengelighed`, og for den lageransvarlige `lager_ansvarlig_overblik`, `_koe`, `_modeller`, `_pakkeliste`, `_enheder`, `_forbrugsvarer`, `_bestillinger`, `_perioder`, `_afregninger`, `_pladser`, `_pluk`, `_optaellinger`.
 
-**Bevidst fraværende:** afregningens godkend, bogfør og afvis (den lageransvarliges klik i appen), salg af værktøj, kassation, prisrettelser, import. Overtagelse kræver et foto og hører til telefonen.
+**Skriv (opt-in via `LAGER_ENABLE_WRITES=true`):** `lager_tjek_ud`, `lager_aflever`, `lager_flyt_projekt`, `lager_forbrug`, `lager_bestil`, `lager_bestilling_hent`, `lager_bestilling_fortryd`, `lager_book`, `lager_booking_status`, og for den lageransvarlige `lager_ansvarlig_modtag_levering`, `_saet_paa_plads`, `_send_bestillingsliste`, `_afklar_ukendt`, optællingen (`_optaelling_start`, `_scan`, `_goer_op`, `_afgoer`, `_luk`), pladser (`_ny_zone`, `_ny_reol`), stamdata (`_ret_model`, `_ret_enhed`) og sæt (`_saet_tilfoej_del`, `_saet_fjern_del`, `_saet_pakkeliste`). Hver skrivning får sin egen `Idempotency-Key`.
+
+**Bevidst fraværende:** afregningens godkend, bogfør og afvis (den lageransvarliges klik i appen), salg af værktøj, kassation, prisrettelser, rettelser af lejeperioder og udtag, import. Overtagelse kræver et foto og hører til telefonen. Hver operation i OpenAPI-kortet uden et værktøj står i `UDEN_VAERKTOEJ` med sin grund.
+
+**Moduler:** en installation kan have slået moduler fra (fx booking eller bestillinger; `lager_me` → `moduler`). Hver sti i OpenAPI-kortet bærer `x-moduler`; værktøjer for et modul, der er slået fra, skjules fra listen og afvises med en klar besked. Modulerne hentes fra `/me` og caches i processen (`LAGER_MODULER_TTL_MS`, standard 5 minutter). Kan `/me` ikke nås, skjules intet; appen afviser selv.
+
+## Resources og prompts
+
+| Resource | Indhold |
+| --- | --- |
+| `lager://lagre` | Dine lagre med roller, installationens moduler og tal |
+| `lager://plads/{kode}` | En plads (fx `A-12-3`) og enhederne, der hører til dér |
+| `lager://enhed/{tag}` | Opslag på et mærke: hvad, hvem har det, hvor skal det stå |
+
+Prompts: `daglig-runde` («Daglig runde»), `tael-en-reol` («Tæl en reol»), `aflever-et-saet` («Aflever et sæt»), `hvor-er` («Hvor er X?»). De kalder ikke appen selv, men beskriver forløbet med værktøjerne og hvor brugeren skal bekræfte.
+
+## OpenAPI som kilde
+
+`openapi/lager.json` er et fastlåst øjebliksbillede af lager-appens `/api/lager/openapi.json` (kun `paths` og `components.schemas`, med en pladsholder som server). Værktøjernes skemaer bygges af det ved opstart; der hentes intet fra appen ved build. Opdatér det fra en kørende backend eller en fil:
+
+```bash
+npm run openapi:opdater -- https://lager.example.com   # eller: LAGER_BASE_URL=… npm run openapi:opdater
+npm test
+```
+
+`test/openapi.test.ts` fejler, hvis et værktøj peger på en operation, der ikke findes, eller hvis kortet har en operation, der hverken har et værktøj eller en grund i `UDEN_VAERKTOEJ`.
 
 ## Konfiguration
 

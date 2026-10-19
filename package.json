@@ -1,6 +1,6 @@
 {
   "name": "mcp-server-lager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for et værktøjslager: opslag, ud og ind, projektskifte, forbrugsvarer, bestillinger, og den lageransvarliges modeller, enheder, beholdning, perioder og afregninger.",
   "type": "module",
   "main": "./dist/stdio.js",
@@ -12,6 +12,7 @@
     "dev:http": "tsx src/transports/http.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "openapi:opdater": "tsx scripts/opdater-openapi.ts",
     "prepare": "npm run build"
   },
   "repository": { "type": "git", "url": "https://github.com/borgels/mcp-server-lager.git" },
