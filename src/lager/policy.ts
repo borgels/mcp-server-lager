@@ -1,6 +1,6 @@
 /**
- * Læsende tools er altid på. Skrivende (tjek ud, aflever, flyt, bestil, forbrug,
- * modtag levering) kræver LAGER_ENABLE_WRITES=true på instansen. Afregningens
+ * Læsende tools er altid på. Skrivende (alt andet end GET) kræver
+ * LAGER_ENABLE_WRITES=true på instansen. Afregningens
  * godkend og bogfør findes med vilje IKKE her: det er den lageransvarliges
  * klik i appen, med kvittering.
  */

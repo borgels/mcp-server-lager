@@ -1,0 +1,54 @@
+# Dependabot version updates. Minor og patch samles i én PR pr. økosystem;
+# major kommer enkeltvis, fordi de kan kræve kodeændringer.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Copenhagen
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Typerne følger Node-versionen i drift (22), ikke den nyeste Node.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Copenhagen
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Copenhagen
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: docker
+    groups:
+      docker-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Node-versionen skiftes bevidst, samtidig med CI og @types/node.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]

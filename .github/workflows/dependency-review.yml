@@ -1,0 +1,29 @@
+name: Dependency review
+
+# Afviser en PR, der tilføjer eller opgraderer til en afhængighed med en kendt
+# sårbarhed af alvorlighed high eller critical.
+on:
+  pull_request:
+  # Skal checket være påkrævet, skal workflowet også kunne køre i merge-køen;
+  # dér springes jobbet over (forskellen blev målt på PR'en).
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-review:
+    name: dependency-review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
