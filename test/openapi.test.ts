@@ -7,6 +7,7 @@ import { KATALOG, UDEN_VAERKTOEJ } from '../src/tools/katalog.js';
 import { byg } from '../src/tools/bygger.js';
 import { alleOperationer, operation, SPEC, splitOp, type OpNoegle } from '../src/openapi/spec.js';
 import { CAPABILITIES } from '../src/lager/capabilities.js';
+import { fund, goerNeutral } from '../scripts/neutral.js';
 
 const brugte = new Set<OpNoegle>(KATALOG.flatMap((s) => byg(s).ops));
 
@@ -14,6 +15,17 @@ describe('OpenAPI-øjebliksbilledet', () => {
   it('har kun pladsholderen som server', () => {
     const doc = SPEC as unknown as { servers: { url: string }[] };
     expect(doc.servers.map((s) => s.url)).toEqual(['https://lager.example.com/api/lager']);
+  });
+
+  it('nævner ingen vært, mailadresse, forbudt navn eller «hos Fornavn»', () => {
+    expect(fund(JSON.stringify(SPEC))).toEqual([]);
+  });
+
+  it('forbudslisten fanger værter, mails, personnavne og ordpar, men ikke neutrale eksempler', () => {
+    expect(fund('se https://lager.intern.test og a@b.test')).toEqual(['lager.intern.test', 'a@b.test']);
+    expect(fund('«hos Fornavn»')).toEqual(['«hos Fornavn»']);
+    expect(fund('«hos Kim» (Sag 1001) og https://lager.example.com')).toEqual([]);
+    expect(goerNeutral('zone-reol-hylde = ABC\'s A-12-3, «hos Fornavn», «hos Kim»')).toBe('zone-reol-hylde = A-12-3, «hos en kollega», «hos Kim»');
   });
 
   it('hver værktøjs operation findes i kortet', () => {

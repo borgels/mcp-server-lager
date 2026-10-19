@@ -62,8 +62,17 @@ describe('lokationstræet', () => {
     const [url, init] = kaldet(fetchFn);
     expect([init.method, url.pathname]).toEqual(['POST', '/api/lager/ansvarlig/lokationer']);
     expect(JSON.parse(String(init.body))).toEqual({ type: 'reol', kode: 'R-12', parentId: 3, geometri: { bredde_mm: 1200, montering: 'mod_vaeg' }, egenskaber: { farve: 'blaa' } });
-    const mangler = await mcp.callTool({ name: 'lager_ansvarlig_lokation_opret', arguments: { kode: 'R-13' } });
-    expect(mangler.isError).toBe(true);
+    // type kan udelades med skabelon (id eller nøgle); børnene beholder Geometri-felterne.
+    fetchFn.mockClear();
+    const fra = await mcp.callTool({ name: 'lager_ansvarlig_lokation_opret', arguments: {
+      skabelon: 'reol-5', parentId: 3, boern: [{ type: 'hylde', z_mm: 400, boern: [{ type: 'bin', celle_x: 1 }] }],
+    } });
+    expect(fra.isError).toBeFalsy();
+    expect(JSON.parse(String(kaldet(fetchFn)[1].body))).toEqual({ skabelon: 'reol-5', parentId: 3, boern: [{ type: 'hylde', z_mm: 400, boern: [{ type: 'bin', celle_x: 1 }] }] });
+    const medId = await mcp.callTool({ name: 'lager_ansvarlig_lokation_opret', arguments: { skabelon: 7 } });
+    expect(medId.isError).toBeFalsy();
+    const forkert = await mcp.callTool({ name: 'lager_ansvarlig_lokation_opret', arguments: { type: 'reolen' } });
+    expect(forkert.isError).toBe(true);
   });
 
   it('flyt og nedlæg: stien har lokationen, nedlæg er destruktiv', async () => {
@@ -93,10 +102,10 @@ describe('IoT', () => {
     const fetchFn = vi.fn(async () => svar(200, {}));
     const mcp = await forbind(fetchFn as unknown as typeof fetch);
     await mcp.callTool({ name: 'lager_iot_enheder', arguments: { lokationId: 5, nedlagte: true } });
-    await mcp.callTool({ name: 'lager_iot_enheder', arguments: { enhedId: 4 } });
-    await mcp.callTool({ name: 'lager_iot_maalinger', arguments: { lokationId: 5, oploesning: 'dag', fra: '2026-10-12T00:00:00Z' } });
+    await mcp.callTool({ name: 'lager_iot_enhed', arguments: { enhedId: 4 } });
+    await mcp.callTool({ name: 'lager_iot_lokation_maalinger', arguments: { lokationId: 5, oploesning: 'dag', fra: '2026-10-12T00:00:00Z' } });
     await mcp.callTool({ name: 'lager_iot_enhed_maalinger', arguments: { enhedId: 4, metrik: 'temperatur' } });
-    await mcp.callTool({ name: 'lager_dugpunkt', arguments: { lokationId: 5 } });
+    await mcp.callTool({ name: 'lager_iot_lokation_dugpunkt', arguments: { lokationId: 5 } });
     expect(fetchFn.mock.calls.map((c) => (c as unknown as Kald)[0].toString())).toEqual([
       'https://lager.test/api/lager/iot/enheder?lokation=5&nedlagte=1',
       'https://lager.test/api/lager/iot/enheder/4',
@@ -128,7 +137,7 @@ describe('resources for lokation og klima', () => {
     await mcp.readResource({ uri: 'lager://lokation/12' });
     const r = await mcp.readResource({ uri: 'lager://rum/5/klima' });
     expect(JSON.parse((r.contents[0] as { text: string }).text)).toMatchObject({ inde: { dugpunkt: 4.7 } });
-    expect(fetchFn.mock.calls.map((c) => (c as unknown as Kald)[0].pathname)).toEqual(['/api/lager/lokationer/12', '/api/lager/iot/lokationer/5/dugpunkt']);
+    expect(fetchFn.mock.calls.map((c) => (c as unknown as Kald)[0].pathname)).toEqual(['/api/lager/lokationer/12', '/api/lager/iot/lokationer/5/klima']);
     await expect(mcp.readResource({ uri: 'lager://lokation/..' })).rejects.toThrow();
   });
 });

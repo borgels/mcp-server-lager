@@ -14,6 +14,7 @@
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { fund, goerNeutral } from './neutral.js';
 
 const kilde = process.argv[2] ?? process.env.LAGER_BASE_URL;
 if (!kilde) {
@@ -42,6 +43,14 @@ const ud = {
   paths: Object.fromEntries(Object.entries(doc.paths).sort(([a], [b]) => a.localeCompare(b))),
   components: { schemas: doc.components?.schemas ?? {} },
 };
+// Installationens egne eksempler gøres neutrale; står der derefter en vært, en mailadresse,
+// et forbudt navn eller «hos Fornavn», gemmes intet (scripts/neutral.ts).
+const tekst = goerNeutral(JSON.stringify(ud, null, 2));
+const forbudt = fund(tekst);
+if (forbudt.length) {
+  console.error(`Kortet nævner ${forbudt.join(', ')}; ret det i backenden, før øjebliksbilledet gemmes.`);
+  process.exit(1);
+}
 const fil = fileURLToPath(new URL('../openapi/lager.json', import.meta.url));
-await writeFile(fil, `${JSON.stringify(ud, null, 2)}\n`, 'utf8');
+await writeFile(fil, `${tekst}\n`, 'utf8');
 console.error(`Skrev ${fil}: ${Object.keys(ud.paths).length} stier, version ${ud.info.version}.`);

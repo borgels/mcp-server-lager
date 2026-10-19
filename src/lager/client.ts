@@ -42,7 +42,7 @@ function fejlkode(e: unknown): string | undefined {
   return undefined;
 }
 
-type Query = Record<string, string | number | boolean | null | undefined>;
+type Query = Record<string, string | number | boolean | null | undefined | readonly (string | number)[]>;
 
 export class LagerApiError extends Error {
   readonly status: number;
@@ -100,7 +100,11 @@ export class LagerClient {
   /** Ét kald under /api/lager. En krop giver kaldet en Idempotency-Key. */
   async request<T>(method: string, path: string, options: { query?: Query; body?: unknown } = {}): Promise<T> {
     const url = new URL(`${this.baseUrl}/api/lager${path}`);
-    for (const [k, v] of Object.entries(options.query ?? {})) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
+    for (const [k, v] of Object.entries(options.query ?? {})) {
+      // En liste gentager parameteren (fx egenskab=…&egenskab=…).
+      if (Array.isArray(v)) for (const x of v) url.searchParams.append(k, String(x));
+      else if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
+    }
     return this.send<T>(method, url, options.body);
   }
 

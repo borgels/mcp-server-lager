@@ -20,7 +20,8 @@ export function registerLagerTools(server: McpServer, client: LagerClient, optio
   const { moduler } = options;
   // Uden en transport-session: én tilfældig værdi pr. server-instans (pr. stdio-proces, pr. HTTP-kald).
   const instans = randomUUID();
-  const json = (data: unknown): CallToolResult => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
+  // Tekst (fx YAML) som den er, en tom krop som ''; alt andet som JSON.
+  const json = (data: unknown): CallToolResult => ({ content: [{ type: 'text', text: data === undefined ? '' : typeof data === 'string' ? data : JSON.stringify(data, null, 2) }] });
   const fejl = (text: string): CallToolResult => ({ content: [{ type: 'text', text }], isError: true });
 
   const run = async (tool: string, input: unknown, fn: () => Promise<unknown>, write: boolean, kraevet: string[]): Promise<CallToolResult> => {
@@ -57,7 +58,7 @@ export function registerLagerTools(server: McpServer, client: LagerClient, optio
   const registrerede: { tool: RegisteredTool; moduler: string[] }[] = [];
   for (const spec of KATALOG) {
     const b = byg(spec);
-    const annotations = !b.skriv ? READ_TOOL_ANNOTATIONS : b.sletter ? { ...WRITE_TOOL_ANNOTATIONS, destructiveHint: true } : WRITE_TOOL_ANNOTATIONS;
+    const annotations = !b.skriv ? READ_TOOL_ANNOTATIONS : { ...WRITE_TOOL_ANNOTATIONS, destructiveHint: b.sletter, idempotentHint: b.idempotent, openWorldHint: b.aabenVerden };
     const tool = server.registerTool(spec.navn, { title: spec.titel, description: spec.beskrivelse, inputSchema: b.shape, annotations }, async (input, extra) =>
       run(spec.navn, input, async () => {
         const i = input as Input;

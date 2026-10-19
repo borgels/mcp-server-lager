@@ -98,9 +98,49 @@ export function erFlag(s: JsonSkema | undefined): boolean {
   return !!s && s.type === 'string' && Array.isArray(s.enum) && s.enum.length === 1 && s.enum[0] === '1';
 }
 
+/**
+ * Skemaer, hvis felter kortet kun nævner i beskrivelsen: Skabelonbarn tager
+ * Geometri-felterne direkte (z_mm, celle_x …). De beholder ukendte nøgler, så
+ * zod ikke skræller dem af; appen validerer dem.
+ */
+const AABNE_SKEMAER = new Set(['Skabelonbarn']);
+
+const refCache = new WeakMap<OpenApiDoc, { faerdige: Map<string, z.ZodType>; paaVej: Set<string> }>();
+
+/**
+ * Et $ref bygges én gang pr. kort. Et skema, der peger på sig selv (fx en
+ * skabelons børn, der har børn), bliver z.lazy på den samme instans, så både
+ * validering og JSON Schema til klienten kan følge kredsen uden at gå i ring.
+ */
+function refTilZod(skema: JsonSkema, doc: OpenApiDoc): z.ZodType {
+  const navn = skema.$ref!.replace('#/components/schemas/', '');
+  let c = refCache.get(doc);
+  if (!c) refCache.set(doc, (c = { faerdige: new Map(), paaVej: new Set() }));
+  const { faerdige, paaVej } = c;
+  let t = faerdige.get(navn);
+  if (!t) {
+    if (paaVej.has(navn)) {
+      t = z.lazy(() => faerdige.get(navn)!);
+    } else {
+      const fundet = doc.components?.schemas?.[navn];
+      if (!fundet) throw new Error(`Ukendt $ref ${skema.$ref}`);
+      paaVej.add(navn);
+      try {
+        t = tilZod(fundet, doc);
+        if (AABNE_SKEMAER.has(navn) && t instanceof z.ZodObject) t = t.loose();
+      } finally {
+        paaVej.delete(navn);
+      }
+      faerdige.set(navn, t);
+    }
+  }
+  return skema.description ? t.describe(skema.description) : t;
+}
+
 /** JSON Schema (den delmængde, kortet bruger) → zod. */
 export function tilZod(skema: JsonSkema | undefined, doc: OpenApiDoc = SPEC): z.ZodType {
   if (!skema) return z.unknown();
+  if (skema.$ref && !skema.allOf) return refTilZod(skema, doc);
   const s = opslaa(skema, doc);
   let t: z.ZodType;
   if (s.oneOf) {
@@ -108,7 +148,10 @@ export function tilZod(skema: JsonSkema | undefined, doc: OpenApiDoc = SPEC): z.
     t = dele.length === 1 ? dele[0]! : z.union(dele as [z.ZodType, z.ZodType, ...z.ZodType[]]);
   } else if (Array.isArray(s.type)) {
     const typer = s.type.filter((x) => x !== 'null');
-    t = tilZod({ ...s, type: typer[0], ...(s.enum ? { enum: s.enum.filter((x) => x !== null) } : {}) }, doc);
+    const enkelt = (type: string | undefined) => tilZod({ ...s, description: undefined, type, ...(s.enum ? { enum: s.enum.filter((x) => x !== null) } : {}) }, doc);
+    // Fx ["integer", "string"] (id eller nøgle): begge typer.
+    const dele = typer.map(enkelt);
+    t = dele.length > 1 ? z.union(dele as [z.ZodType, z.ZodType, ...z.ZodType[]]) : enkelt(typer[0]);
     if (s.type.includes('null')) t = t.nullable();
   } else if (s.enum && s.enum.every((x) => typeof x === 'string')) {
     t = z.enum(s.enum as [string, ...string[]]);
