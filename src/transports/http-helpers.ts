@@ -16,6 +16,8 @@ export interface HttpConfig {
   port: number;
   maxBodyBytes: number;
   httpToken?: string;
+  /** Det forrige token under en rotation (MCP_HTTP_TOKEN_FORRIGE): gælder sammen med det nye. */
+  httpTokenForrige?: string;
 }
 
 export function getHttpConfig(): HttpConfig {
@@ -24,6 +26,7 @@ export function getHttpConfig(): HttpConfig {
     port: Number(process.env.PORT ?? 3000),
     maxBodyBytes: Number(process.env.MCP_MAX_BODY_BYTES ?? 10_485_760),
     httpToken: process.env.MCP_HTTP_TOKEN || undefined,
+    httpTokenForrige: process.env.MCP_HTTP_TOKEN_FORRIGE || undefined,
   };
 }
 
@@ -33,7 +36,11 @@ export function assertAuthorized(req: IncomingMessage, config = getHttpConfig())
   }
 
   const header = req.headers.authorization ?? '';
-  if (!tokensEqual(header, `Bearer ${config.httpToken}`)) {
+  // Rotation uden nedetid: det nye og det forrige token gælder begge. Begge sammenlignes
+  // altid (ingen kortslutning), så svartiden ikke røber, hvilket der passede.
+  const gyldige = [config.httpToken, config.httpTokenForrige].filter((t): t is string => !!t);
+  const passer = gyldige.map((t) => tokensEqual(header, `Bearer ${t}`));
+  if (!passer.some(Boolean)) {
     throw new HttpRequestError(401, 'Unauthorized');
   }
 }

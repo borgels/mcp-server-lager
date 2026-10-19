@@ -198,7 +198,7 @@ describe('resources og prompts', () => {
     const stier = fetchFn.mock.calls.map((c) => (c as unknown as Kald)[0].pathname);
     expect(stier).toEqual(['/api/lager/opslag/T-00012', '/api/lager/pladser/A-12-3']);
     const skabeloner = (await mcp.listResourceTemplates()).resourceTemplates.map((t) => t.uriTemplate).sort();
-    expect(skabeloner).toEqual(['lager://enhed/{tag}', 'lager://plads/{kode}']);
+    expect(skabeloner).toEqual(['lager://enhed/{tag}', 'lager://lokation/{id}', 'lager://plads/{kode}', 'lager://rum/{id}/klima']);
   });
 
   it('lager://lagre giver lagre og moduler', async () => {

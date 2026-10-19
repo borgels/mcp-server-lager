@@ -595,6 +595,75 @@
         }
       }
     },
+    "/ansvarlig/etiketter/lokationer": {
+      "get": {
+        "summary": "Etiketark som PDF for et undertræ af lokationstræet: én etiket pr. aktiv lokation med kode, QR til /p/<kode> og stien som linje to. Med skabelon, format eller koder (#42): etiketterne efter en skabelon (Brother QL, Niimbot, Dymo …); format=png er én etiket i printerens punkter",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "rod",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Undertræets rod; uden: hele lageret"
+          },
+          {
+            "name": "typer",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Komma: kun disse typer, fx hylde,bin"
+          },
+          {
+            "name": "koder",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Komma: netop disse koder på lageret"
+          },
+          {
+            "name": "skabelon",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Skabelonens id (se /ansvarlig/etiketter/skabeloner); standard installationens A4-ark"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pdf",
+                "png"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF eller PNG"
+          },
+          "404": {
+            "description": "Ingen lokationer med kode i undertræet"
+          },
+          "422": {
+            "description": "Over 240 etiketter, eller PNG af flere end én"
+          }
+        }
+      }
+    },
     "/ansvarlig/etiketter/pladser": {
       "get": {
         "summary": "Hyldeetiketter som PDF (?zone=A, eller alle særlige zoner)",
@@ -618,6 +687,212 @@
         "responses": {
           "200": {
             "description": "PDF"
+          }
+        }
+      }
+    },
+    "/ansvarlig/etiketter/print": {
+      "post": {
+        "summary": "Print etiketter på en label-service (fx brother_ql_web ved en Brother QL), som installationen har sat op i LAGER_ETIKETPRINTERE. Enheder med tags, eller lokationer med lager og rod (id)/typer/koder; højst 50. Samme Idempotency-Key inden for 15 minutter printer ikke igen",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "printer": {
+                    "type": "string"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "lager": {
+                    "type": "integer"
+                  },
+                  "rod": {
+                    "type": "integer"
+                  },
+                  "typer": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "sted",
+                        "bygning",
+                        "rum",
+                        "omraade",
+                        "vaeg",
+                        "reol",
+                        "skab",
+                        "plade",
+                        "hylde",
+                        "skuffe",
+                        "grid",
+                        "skum",
+                        "bin",
+                        "udskaering",
+                        "krog",
+                        "fag",
+                        "plads",
+                        "beholder"
+                      ],
+                      "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
+                    }
+                  },
+                  "koder": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "printer"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ printer, printet }"
+          },
+          "404": {
+            "description": "Printeren eller lokationen findes ikke"
+          },
+          "502": {
+            "description": "Printeren svarede ikke eller med en fejl; besked siger, hvor mange der nåede ud"
+          }
+        }
+      }
+    },
+    "/ansvarlig/etiketter/skabeloner": {
+      "get": {
+        "summary": "Etiketskabelonerne (mål i mm, dpi, printertype, PDF/PNG), installationens label-service-printere (id, navn, skabelon; aldrig adressen) og om Niimbot er slået til",
+        "responses": {
+          "200": {
+            "description": "{ standard, skabeloner, printere, niimbot }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/evnetyper": {
+      "post": {
+        "operationId": "lager_ansvarlig_evnetype_opret",
+        "summary": "Ny evnetype. Med lagerId lagerets egen (lageransvarlig dér); lagerId: null = hele installationens (lageransvarlig på alle lagre)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "noegle": {
+                    "type": "string"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "beskrivelse": {
+                    "type": "string"
+                  },
+                  "parametre": {
+                    "type": "object"
+                  },
+                  "arves": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "noegle",
+                  "navn"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ evnetype: Evnetype }"
+          },
+          "409": {
+            "description": "Nøglen findes"
+          }
+        }
+      }
+    },
+    "/ansvarlig/evnetyper/{id}": {
+      "patch": {
+        "operationId": "lager_ansvarlig_evnetype_ret",
+        "summary": "Ret navn, beskrivelse, skema, arv eller slå typen fra. Et nyt skema skal passe til det, der allerede er sat",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": "string"
+                  },
+                  "beskrivelse": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "parametre": {
+                    "type": "object"
+                  },
+                  "arves": {
+                    "type": "boolean"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ evnetype: Evnetype }"
+          },
+          "409": {
+            "description": "Sat parametre passer ikke til det nye skema"
           }
         }
       }
@@ -1102,6 +1377,429 @@
         }
       }
     },
+    "/ansvarlig/lokationer": {
+      "post": {
+        "operationId": "lager_ansvarlig_lokation_opret",
+        "summary": "Ny lokation. Uden parentId under lagerets standardrod; parentId null = en ny rod (et sted). Et rum med bredde og dybde får sine fire vægge",
+        "description": "Typen skal kunne ligge i forælderen (docs/lokationer.md § 1); koden skal være ledig på lageret (409). planId opretter lokationen planlagt i et scenarie (#33) i stedet for i den rigtige verden.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Lokationsfelter"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "parentId": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "lagerId": {
+                        "type": "integer"
+                      },
+                      "planId": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "vaegge": {
+                        "type": "boolean",
+                        "description": "false: et rum får ingen vægge"
+                      }
+                    }
+                  }
+                ],
+                "required": [
+                  "type"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ lokation: Lokation }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lokation": {
+                      "$ref": "#/components/schemas/Lokation"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Koden er brugt"
+          },
+          "422": {
+            "description": "Typen må ikke ligge dér, eller et felt er ugyldigt"
+          }
+        }
+      }
+    },
+    "/ansvarlig/lokationer/{id}": {
+      "patch": {
+        "operationId": "lager_ansvarlig_lokation_ret",
+        "summary": "Ret navn, kode, type, geometri, egenskaber, kapacitet og fast plads. Kun felterne, der er med",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Lokationsfelter"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ lokation: Lokation }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lokation": {
+                      "$ref": "#/components/schemas/Lokation"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "version passer ikke (ændret siden), eller koden er brugt"
+          }
+        }
+      }
+    },
+    "/ansvarlig/lokationer/{id}/evner/{noegle}": {
+      "put": {
+        "operationId": "lager_ansvarlig_lokation_evne_saet",
+        "summary": "Sæt lokationens egen evne. Parametrene flettes ind i de arvede (null fjerner et arvet felt); fravalgt: true fjerner en arvet evne her og under",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "noegle",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "parametre": {
+                    "type": "object"
+                  },
+                  "fravalgt": {
+                    "type": "boolean"
+                  },
+                  "note": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Lokationens evner, som GET /lokationer/{id}/evner"
+          },
+          "422": {
+            "description": "Parametrene passer ikke til typens skema, eller et påkrævet felt mangler"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "lager_ansvarlig_lokation_evne_fjern",
+        "summary": "Fjern lokationens egen evne (eller fravalg); det arvede gælder så igen",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "noegle",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lokationens evner"
+          },
+          "404": {
+            "description": "Lokationen har ikke selv evnen"
+          }
+        }
+      }
+    },
+    "/ansvarlig/lokationer/{id}/flyt": {
+      "post": {
+        "operationId": "lager_ansvarlig_lokation_flyt",
+        "summary": "Flyt en lokation med alt under den til en ny forælder på samme lager; aldrig ind under sig selv. En beholder (enhedTag) tager enhedens hjemmeplads og sættets dele med og kan ikke stå direkte i et sted, en bygning eller en væg",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "parentId": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "geometri": {
+                    "$ref": "#/components/schemas/Geometri"
+                  },
+                  "sortering": {
+                    "type": "integer"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "parentId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ lokation: Lokation }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lokation": {
+                      "$ref": "#/components/schemas/Lokation"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "version passer ikke, eller en enhed kommer i en zone, den ikke må stå i"
+          },
+          "422": {
+            "description": "Ring, andet lager eller en type, der ikke må ligge dér"
+          }
+        }
+      }
+    },
+    "/ansvarlig/lokationer/{id}/nedlaeg": {
+      "post": {
+        "operationId": "lager_ansvarlig_lokation_nedlaeg",
+        "summary": "Nedlæg en lokation (koden frigives). Den skal være tom, eller indholdet flyttes til flytIndholdTil",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "flytIndholdTil": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ lokation: Lokation }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lokation": {
+                      "$ref": "#/components/schemas/Lokation"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ikke tom, allerede nedlagt eller version passer ikke"
+          }
+        }
+      }
+    },
+    "/ansvarlig/lokationer/batch": {
+      "post": {
+        "operationId": "lager_ansvarlig_lokationer_batch",
+        "summary": "Editorens gem: mange rettelser og flytninger på én gang, alt eller intet, med version pr. lokation",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "linjer": {
+                    "type": "array",
+                    "items": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/Lokationsfelter"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "integer"
+                            },
+                            "version": {
+                              "type": "integer"
+                            },
+                            "parentId": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "description": "Med: flyt lokationen"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "version"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "linjer"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ lokationer: Lokation[] }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lokationer": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Lokation"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "En linjes version passer ikke; intet er gemt (fejlen nævner linjen)"
+          },
+          "422": {
+            "description": "En linje er ugyldig; intet er gemt"
+          }
+        }
+      }
+    },
     "/ansvarlig/modeller": {
       "get": {
         "summary": "Modeller med antal og dagens pris (inkl. kostpris)",
@@ -1284,6 +1982,120 @@
         "responses": {
           "200": {
             "description": "{ model }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/modeller/{id}/krav": {
+      "get": {
+        "operationId": "lager_ansvarlig_model_krav",
+        "summary": "Modellens krav til evner (fx lades: batterisystem X; kræver udsugning)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ krav }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "krav": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "noegle": {
+                            "type": "string"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "parametre": {
+                            "type": "object"
+                          },
+                          "haardt": {
+                            "type": "boolean"
+                          },
+                          "note": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "lager_ansvarlig_model_krav_saet",
+        "summary": "Sæt hele modellens kravliste, kun på installationens evnetyper (modellen deles af selskabets lagre). Et hårdt krav må ikke brydes; et blødt er en anbefaling (placeringsmotoren, #86). Krav på en type, der er slået fra, tæller ikke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "krav": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "evne": {
+                          "type": "string"
+                        },
+                        "parametre": {
+                          "type": "object",
+                          "description": "De værdier, evnen skal have; et listefelt i evnen skal indeholde værdien"
+                        },
+                        "haardt": {
+                          "type": "boolean"
+                        },
+                        "note": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "evne"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "krav"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ krav }"
           }
         }
       }
@@ -2667,6 +3479,461 @@
         }
       }
     },
+    "/ansvarlig/vedligehold/forfald": {
+      "x-moduler": [
+        "vedligehold"
+      ],
+      "get": {
+        "summary": "Det, der forfalder: hver opgave pr. enhed eller lokation med næste forfald og status (overskredet, snart, ukendt, ok)",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "lokation",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lokationen og alt under den"
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "omfang",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "enhed",
+                "lokation"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Komma: overskredet,snart,ukendt,ok,udfoert. Standard alle undtagen udfoert"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ tal: { overskredet, snart, ukendt, ok, udfoert }, forfald: [{ opgaveId, titel, type, omfang, tag, enhed, lokationId, lokation, sidst, forfald, status, dage }] }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/vedligehold/log": {
+      "x-moduler": [
+        "vedligehold"
+      ],
+      "get": {
+        "summary": "Vedligeholdsloggen, nyeste først",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lokation",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "opgave",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ log: [{ id, opgaveId, type, titel, tag, lokation, udfoert, udfoertAf, note, omkostning, bilag, af }] }"
+          }
+        }
+      },
+      "post": {
+        "summary": "Registrér udført: lukker en engangsopgave eller flytter næste forfald. Uden opgave en linje i servicehistorikken",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8
+            },
+            "description": "Klientens nøgle: samme nøgle to gange = samme resultat, ingen dublet."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "opgaveId": {
+                    "type": "integer"
+                  },
+                  "typeId": {
+                    "type": "integer"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "tag": {
+                    "type": "string"
+                  },
+                  "lokationId": {
+                    "type": "integer"
+                  },
+                  "udfoert": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "udfoertAf": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "omkostning": {
+                    "type": "number"
+                  },
+                  "bilag": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ log }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/vedligehold/opgaver": {
+      "x-moduler": [
+        "vedligehold"
+      ],
+      "get": {
+        "summary": "Opgaverne på en enhed (med dens models), en model eller en lokation",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "lokation",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ opgaver }"
+          }
+        }
+      },
+      "post": {
+        "summary": "Ny opgave på én enhed, én model (alle dens enheder) eller én lokation. Uden interval en engangsdato (fx garanti)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "typeId": {
+                    "type": "integer"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "titel": {
+                    "type": "string"
+                  },
+                  "tag": {
+                    "type": "string"
+                  },
+                  "modelId": {
+                    "type": "integer"
+                  },
+                  "lokationId": {
+                    "type": "integer"
+                  },
+                  "lokation": {
+                    "type": "string"
+                  },
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "intervalMdr": {
+                    "type": "integer"
+                  },
+                  "intervalDage": {
+                    "type": "integer"
+                  },
+                  "forfald": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "varselDage": {
+                    "type": "integer"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ opgave }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/vedligehold/opgaver/{id}": {
+      "x-moduler": [
+        "vedligehold"
+      ],
+      "get": {
+        "summary": "Én opgave",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ opgave }"
+          }
+        }
+      },
+      "put": {
+        "summary": "Ret en opgave; modellens eftersyn skriver intervallet tilbage på modelkortet",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "titel": {
+                    "type": "string"
+                  },
+                  "intervalMdr": {
+                    "type": "integer"
+                  },
+                  "intervalDage": {
+                    "type": "integer"
+                  },
+                  "forfald": {
+                    "type": "string"
+                  },
+                  "varselDage": {
+                    "type": "integer"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ opgave }"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Slå opgaven fra (loggen bliver)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ opgave }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/vedligehold/typer": {
+      "x-moduler": [
+        "vedligehold"
+      ],
+      "get": {
+        "summary": "Opgavetyperne (data): eftersyn, kalibrering, rengøring, … og egne",
+        "responses": {
+          "200": {
+            "description": "{ typer: [{ id, noegle, navn, beskrivelse, indbygget, aktiv }], maaRette }"
+          }
+        }
+      },
+      "post": {
+        "summary": "Ny opgavetype. Kræver lageransvarlig på alle installationens lagre",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": "string"
+                  },
+                  "noegle": {
+                    "type": "string"
+                  },
+                  "beskrivelse": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "navn"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ type }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/vedligehold/typer/{id}": {
+      "x-moduler": [
+        "vedligehold"
+      ],
+      "put": {
+        "summary": "Ret eller slå en opgavetype fra. Kræver lageransvarlig på alle lagre; en indbygget type kan kun slås fra og til (409)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": "string"
+                  },
+                  "beskrivelse": {
+                    "type": "string"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ type }"
+          }
+        }
+      }
+    },
     "/auth/forny": {
       "post": {
         "summary": "Forlæng sessionen (samme session, nyt token)",
@@ -3228,6 +4495,17 @@
         }
       }
     },
+    "/branding": {
+      "get": {
+        "summary": "Installationens navn, ejer, logo, ikon og farver. Offentlig, uden login",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "{ produktnavn, appnavn, ejer, beskrivelse, logo, ikon, farver: { brand, brandBloed, brandPaa } }"
+          }
+        }
+      }
+    },
     "/dokumenter/{id}": {
       "get": {
         "summary": "Et dokument på en model (PDF eller billede), for alle med adgang til lageret",
@@ -3244,6 +4522,42 @@
         "responses": {
           "200": {
             "description": "Filen"
+          }
+        }
+      }
+    },
+    "/evnetyper": {
+      "get": {
+        "operationId": "lager_evnetyper",
+        "summary": "Evnetyperne (opladning, udsugning, strøm …) med parametrenes skema: installationens og lagrenes egne",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ evnetyper: Evnetype[] }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "evnetyper": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Evnetype"
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -3390,12 +4704,1706 @@
         }
       }
     },
+    "/iot/enheder": {
+      "x-moduler": [
+        "iot"
+      ],
+      "get": {
+        "summary": "IoT-enhederne på dine lagre; den lageransvarlige får også forbindelsens status (aldrig adresse eller token)",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "lokation",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lokationen og dens efterkommere"
+          },
+          {
+            "name": "nedlagte",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "1: også nedlagte enheder"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ enheder, forbindelse? }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enheder": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "lagerId": {
+                            "type": "integer"
+                          },
+                          "lokation": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "kode": {
+                                "type": "string"
+                              },
+                              "navn": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "haEntityId": {
+                            "type": "string"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "slags": {
+                            "type": "string"
+                          },
+                          "metrik": {
+                            "type": "string"
+                          },
+                          "xMm": {
+                            "type": "integer"
+                          },
+                          "yMm": {
+                            "type": "integer"
+                          },
+                          "zMm": {
+                            "type": "integer"
+                          },
+                          "montering": {
+                            "type": "string",
+                            "enum": [
+                              "vaeg",
+                              "loft",
+                              "gulv",
+                              "ude"
+                            ]
+                          },
+                          "maaleenhed": {
+                            "type": "string"
+                          },
+                          "aktiv": {
+                            "type": "boolean"
+                          },
+                          "meta": {
+                            "type": "object"
+                          },
+                          "sidste": {
+                            "type": "object",
+                            "properties": {
+                              "tilstand": {
+                                "type": "string"
+                              },
+                              "tid": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "oprettet": {
+                            "type": "string"
+                          },
+                          "opdateret": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "forbindelse": {
+                      "type": "object",
+                      "properties": {
+                        "konfigureret": {
+                          "type": "boolean"
+                        },
+                        "forbundet": {
+                          "type": "boolean"
+                        },
+                        "siden": {
+                          "type": "string"
+                        },
+                        "fejl": {
+                          "type": "string"
+                        },
+                        "skrivefejl": {
+                          "type": "string"
+                        },
+                        "backfillfejl": {
+                          "type": "string"
+                        },
+                        "naesteForsoeg": {
+                          "type": "string"
+                        },
+                        "haVersion": {
+                          "type": "string"
+                        },
+                        "enheder": {
+                          "type": "integer"
+                        },
+                        "afvisteTider": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Map en HA-entitet til en lokation. Kræver lageransvarlig på ALLE installationens lagre (HA er installationens), og lokationen på et af dine lagre; 409 hvis entiteten allerede er mappet",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lokationId": {
+                    "type": "integer"
+                  },
+                  "haEntityId": {
+                    "type": "string",
+                    "description": "Entiteten i Home Assistant, fx sensor.skur_temperatur"
+                  },
+                  "slags": {
+                    "type": "string",
+                    "description": "sensor, kontakt, lys, ventilator, klima, kamera, printer … (data, ikke en fast liste)"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "metrik": {
+                    "type": "string",
+                    "description": "Valgfri; ellers læst af HA's device_class (temperatur, fugt, co2 …)"
+                  },
+                  "xMm": {
+                    "type": "integer"
+                  },
+                  "yMm": {
+                    "type": "integer"
+                  },
+                  "zMm": {
+                    "type": "integer"
+                  },
+                  "montering": {
+                    "type": "string",
+                    "enum": [
+                      "vaeg",
+                      "loft",
+                      "gulv",
+                      "ude"
+                    ]
+                  },
+                  "maaleenhed": {
+                    "type": "string"
+                  },
+                  "meta": {
+                    "type": "object",
+                    "description": "Fx { taerskel: 0.5 } for egen skrivetærskel"
+                  }
+                },
+                "required": [
+                  "lokationId",
+                  "haEntityId",
+                  "slags"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ enhed }"
+          }
+        }
+      }
+    },
+    "/iot/enheder/{id}": {
+      "x-moduler": [
+        "iot"
+      ],
+      "get": {
+        "summary": "Én IoT-enhed",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ enhed }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enhed": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "lagerId": {
+                          "type": "integer"
+                        },
+                        "lokation": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "integer"
+                            },
+                            "kode": {
+                              "type": "string"
+                            },
+                            "navn": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "haEntityId": {
+                          "type": "string"
+                        },
+                        "navn": {
+                          "type": "string"
+                        },
+                        "slags": {
+                          "type": "string"
+                        },
+                        "metrik": {
+                          "type": "string"
+                        },
+                        "xMm": {
+                          "type": "integer"
+                        },
+                        "yMm": {
+                          "type": "integer"
+                        },
+                        "zMm": {
+                          "type": "integer"
+                        },
+                        "montering": {
+                          "type": "string",
+                          "enum": [
+                            "vaeg",
+                            "loft",
+                            "gulv",
+                            "ude"
+                          ]
+                        },
+                        "maaleenhed": {
+                          "type": "string"
+                        },
+                        "aktiv": {
+                          "type": "boolean"
+                        },
+                        "meta": {
+                          "type": "object"
+                        },
+                        "sidste": {
+                          "type": "object",
+                          "properties": {
+                            "tilstand": {
+                              "type": "string"
+                            },
+                            "tid": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "oprettet": {
+                          "type": "string"
+                        },
+                        "opdateret": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Ret enheden (felterne i kroppen). Flyttes den, skal du være ansvarlig begge steder; en ny haEntityId eller aktiv: true på en nedlagt kræver lageransvarlig på alle lagre",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lokationId": {
+                    "type": "integer"
+                  },
+                  "haEntityId": {
+                    "type": "string",
+                    "description": "Entiteten i Home Assistant, fx sensor.skur_temperatur"
+                  },
+                  "slags": {
+                    "type": "string",
+                    "description": "sensor, kontakt, lys, ventilator, klima, kamera, printer … (data, ikke en fast liste)"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "metrik": {
+                    "type": "string",
+                    "description": "Valgfri; ellers læst af HA's device_class (temperatur, fugt, co2 …)"
+                  },
+                  "xMm": {
+                    "type": "integer"
+                  },
+                  "yMm": {
+                    "type": "integer"
+                  },
+                  "zMm": {
+                    "type": "integer"
+                  },
+                  "montering": {
+                    "type": "string",
+                    "enum": [
+                      "vaeg",
+                      "loft",
+                      "gulv",
+                      "ude"
+                    ]
+                  },
+                  "maaleenhed": {
+                    "type": "string"
+                  },
+                  "meta": {
+                    "type": "object",
+                    "description": "Fx { taerskel: 0.5 } for egen skrivetærskel"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ enhed }"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Fjern enheden: slettes uden målinger, ellers nedlægges den, og historikken bliver",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ slettet }"
+          }
+        }
+      }
+    },
+    "/iot/enheder/{id}/maalinger": {
+      "x-moduler": [
+        "iot"
+      ],
+      "get": {
+        "summary": "Enhedens målinger, rå eller pr. time/døgn (min, maks, middel)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "oploesning",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "raa",
+                "time",
+                "dag"
+              ]
+            },
+            "description": "Standard time. Højst 31 dage rå, 366 dage time."
+          },
+          {
+            "name": "fra",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "ISO 8601"
+          },
+          {
+            "name": "til",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "ISO 8601, standard nu"
+          },
+          {
+            "name": "metrik",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ enhed, oploesning, fra, til, serier }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "oploesning": {
+                      "type": "string"
+                    },
+                    "fra": {
+                      "type": "string"
+                    },
+                    "til": {
+                      "type": "string"
+                    },
+                    "serier": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "enhedId": {
+                            "type": "integer"
+                          },
+                          "metrik": {
+                            "type": "string"
+                          },
+                          "punkter": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "tid": {
+                                  "type": "string"
+                                },
+                                "vaerdi": {
+                                  "type": "number"
+                                },
+                                "min": {
+                                  "type": "number"
+                                },
+                                "maks": {
+                                  "type": "number"
+                                },
+                                "antal": {
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/iot/enheder/{id}/skift": {
+      "x-moduler": [
+        "iot"
+      ],
+      "post": {
+        "summary": "Tænd eller sluk en kontakt, et lys eller en ventilator gennem Home Assistant. Kun lageransvarlig; står i revisionsloggen. 503 uden forbindelse, 502 når HA afviser",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "handling": {
+                    "type": "string",
+                    "enum": [
+                      "taend",
+                      "sluk"
+                    ]
+                  }
+                },
+                "required": [
+                  "handling"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ ok, enhed, handling }"
+          }
+        }
+      }
+    },
+    "/iot/lokationer/{id}/dugpunkt": {
+      "x-moduler": [
+        "iot"
+      ],
+      "get": {
+        "summary": "Klimaet nu: temperatur, fugt og dugpunkt inde og ude (null uden begge målinger fra en føler, der har meldt sig inden for en time)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ lokation, inde, ude }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "inde": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "temperatur": {
+                              "type": "number"
+                            },
+                            "fugt": {
+                              "type": "number"
+                            },
+                            "dugpunkt": {
+                              "type": "number"
+                            },
+                            "foelere": {
+                              "type": "integer"
+                            },
+                            "tid": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ude": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "temperatur": {
+                              "type": "number"
+                            },
+                            "fugt": {
+                              "type": "number"
+                            },
+                            "dugpunkt": {
+                              "type": "number"
+                            },
+                            "foelere": {
+                              "type": "integer"
+                            },
+                            "tid": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/iot/lokationer/{id}/maalinger": {
+      "x-moduler": [
+        "iot"
+      ],
+      "get": {
+        "summary": "Målingerne for alle enheder på lokationen og dens efterkommere, og dugpunktet (Magnus) af de indendørs følere",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "oploesning",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "raa",
+                "time",
+                "dag"
+              ]
+            },
+            "description": "Standard time. Højst 31 dage rå, 366 dage time."
+          },
+          {
+            "name": "fra",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "ISO 8601"
+          },
+          {
+            "name": "til",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "ISO 8601, standard nu"
+          },
+          {
+            "name": "metrik",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ lokation, oploesning, fra, til, enheder, serier, dugpunkt }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "serier": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "enhedId": {
+                            "type": "integer"
+                          },
+                          "metrik": {
+                            "type": "string"
+                          },
+                          "punkter": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "tid": {
+                                  "type": "string"
+                                },
+                                "vaerdi": {
+                                  "type": "number"
+                                },
+                                "min": {
+                                  "type": "number"
+                                },
+                                "maks": {
+                                  "type": "number"
+                                },
+                                "antal": {
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "dugpunkt": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "tid": {
+                            "type": "string"
+                          },
+                          "vaerdi": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lokationer": {
+      "get": {
+        "operationId": "lager_lokationer",
+        "summary": "Lokationstræet for et lager som en flad liste (forælder før børn) med geometri, sti og antal",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "rod",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Undertræets rod: id eller kode. Uden: hele lageret"
+          },
+          {
+            "name": "dybde",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "description": "Højst så mange niveauer under roden (0 = kun roden)"
+          },
+          {
+            "name": "typer",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Kun disse typer, kommasepareret (reol,hylde); dybde og sti er stadig træets"
+          },
+          {
+            "name": "plan",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Læg et scenaries planlagte lokationer oven på det rigtige træ (#33)"
+          },
+          {
+            "name": "nedlagte",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "Tag nedlagte lokationer med"
+          },
+          {
+            "name": "evne",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Kun lokationer, hvor evnen gælder (egen eller arvet), fx opladning; hver får evne: { parametre, fra, arvet }"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Træet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lager": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "navn": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "rod": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "plan": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "lokationer": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/LokationKort"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lokationer/{id}": {
+      "get": {
+        "operationId": "lager_lokation",
+        "summary": "Én lokation med sti, effektive mål, børn og indhold (enheder; en fast plads' tilstand)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "rekursivt",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "Enhederne i hele undertræet, hver med lokationId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lokationen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lokation": {
+                      "$ref": "#/components/schemas/Lokation"
+                    },
+                    "lager": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "navn": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "sti": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Stiled"
+                      }
+                    },
+                    "stiTekst": {
+                      "type": "string"
+                    },
+                    "effektiveMaal": {
+                      "type": "object",
+                      "description": "Mål med arv (en hylde uden bredde får reolens indre; § 3.2)"
+                    },
+                    "kanBaereEnheder": {
+                      "type": "boolean"
+                    },
+                    "planlagteBoern": {
+                      "type": "integer",
+                      "description": "Planlagte børn i scenarier (#33): står ikke i boern, men en lokation med dem kan ikke nedlægges"
+                    },
+                    "boern": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "kode": {
+                            "type": "string"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "planId": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "sortering": {
+                            "type": "integer"
+                          },
+                          "antal": {
+                            "type": "object",
+                            "properties": {
+                              "boern": {
+                                "type": "integer"
+                              },
+                              "enheder": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "indhold": {
+                      "type": "object",
+                      "properties": {
+                        "enheder": {
+                          "type": "array",
+                          "items": {
+                            "allOf": [
+                              {
+                                "$ref": "#/components/schemas/Enhed"
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "lokationId": {
+                                    "type": "integer"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        "fastPlads": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "modelId": {
+                                  "type": "integer"
+                                },
+                                "model": {
+                                  "type": "string"
+                                },
+                                "fastTag": {
+                                  "type": "string"
+                                },
+                                "tom": {
+                                  "type": "boolean"
+                                },
+                                "mangler": {
+                                  "description": "Den savnede enhed, når pladsen er tom: { tag, status, hos }"
+                                }
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "enhed": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/Enhed"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Lokationen ER denne enhed (beholder): hvor den er, og hos hvem"
+                        }
+                      }
+                    },
+                    "evner": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EffektivEvne"
+                      },
+                      "description": "Evnerne, der gælder her (egne og arvede)"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Findes ikke på kalderens lagre"
+          }
+        }
+      }
+    },
+    "/lokationer/{id}/evner": {
+      "get": {
+        "operationId": "lager_lokation_evner",
+        "summary": "Lokationens evner: egne og dem, der gælder med arven (med hvor de kommer fra); med ?model= om modellens krav er opfyldt",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Model-id: svar også med krav: Kravsvar[]"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ egne, effektive: EffektivEvne[], krav?: Kravsvar[] }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "egne": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "noegle": {
+                            "type": "string"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "parametre": {
+                            "type": "object"
+                          },
+                          "fravalgt": {
+                            "type": "boolean"
+                          },
+                          "note": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "af": {
+                            "type": "string"
+                          },
+                          "opdateret": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "effektive": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EffektivEvne"
+                      }
+                    },
+                    "krav": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Kravsvar"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lokationer/belaegning": {
+      "get": {
+        "operationId": "lager_belaegning",
+        "summary": "Belægningen: pr. lokation, der kan bære enheder, antal, kapacitet, fyldgrad og tomme faste pladser, med en sum",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "rod",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Undertræets rod: id eller kode. Uden: hele lageret"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Belægningen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lager": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "navn": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "rod": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "i_alt": {
+                      "type": "object",
+                      "properties": {
+                        "lokationer": {
+                          "type": "integer"
+                        },
+                        "medEnheder": {
+                          "type": "integer"
+                        },
+                        "tomme": {
+                          "type": "integer"
+                        },
+                        "enheder": {
+                          "type": "integer"
+                        },
+                        "paaLager": {
+                          "type": "integer"
+                        },
+                        "ude": {
+                          "type": "integer"
+                        },
+                        "fuldeMedKapacitet": {
+                          "type": "integer"
+                        },
+                        "fastePladser": {
+                          "type": "integer"
+                        },
+                        "fastePladserTomme": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "lokationer": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "kode": {
+                            "type": "string"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "sti": {
+                            "type": "string"
+                          },
+                          "kapacitet": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "enheder": {
+                            "type": "integer"
+                          },
+                          "paaLager": {
+                            "type": "integer"
+                          },
+                          "ude": {
+                            "type": "integer"
+                          },
+                          "fyldgrad": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "fuld": {
+                            "type": "boolean"
+                          },
+                          "fastPlads": {
+                            "description": "{ modelId, model, fastTag, tom, mangler } eller null"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lokationer/kode/{kode}": {
+      "get": {
+        "operationId": "lager_lokation_kode",
+        "summary": "Lokationens etiket: koden (eller /p/<kode>-adressen) slået op som lokation, med sti og indhold",
+        "parameters": [
+          {
+            "name": "kode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Som /lokationer/{id}"
+          },
+          "404": {
+            "description": "Ingen lokation med koden på kalderens lagre"
+          }
+        }
+      }
+    },
+    "/lokationer/soeg": {
+      "get": {
+        "operationId": "lager_hvor_er",
+        "summary": "Hvor er X: et mærke, serienummer, en model eller fri tekst → enheder med hjemmepladsens fulde sti og tilstand, og lokationer med kode eller navn",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Alle ord skal passe"
+          },
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fund",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "q": {
+                      "type": "string"
+                    },
+                    "enheder": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "enhed": {
+                            "$ref": "#/components/schemas/Enhed"
+                          },
+                          "lokation": {
+                            "oneOf": [
+                              {
+                                "$ref": "#/components/schemas/Stiled"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "sti": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/Stiled"
+                            }
+                          },
+                          "stiTekst": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "beholder": {
+                            "description": "Beholderen, enheden står i, når den selv er ude: { tag, status, hos }"
+                          },
+                          "svar": {
+                            "type": "string",
+                            "description": "Svaret i én linje: «På plads: Hjem › Skur › R1-3», «Ude hos Jesper (Sag 2602)», «I SKUR-0001, hos Jesper (ude) …»"
+                          }
+                        }
+                      }
+                    },
+                    "lokationer": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "lokation": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "lagerId": {
+                                "type": "integer"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "kode": {
+                                "type": "string"
+                              },
+                              "navn": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "sti": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/Stiled"
+                            }
+                          },
+                          "stiTekst": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lokationer/typer": {
+      "get": {
+        "operationId": "lager_lokationstyper",
+        "summary": "Typereglerne: hvem må være barn af hvem (boern.rod er det, der må stå øverst), og hvilke typer kan være en enheds plads. Med ?foraelder= kernens kodeforslag for hver type, der må ligge dér",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "foraelder",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Forælderens id, eller «rod» for en ny rod på ?lager="
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reglerne",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "typer": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "sted",
+                          "bygning",
+                          "rum",
+                          "omraade",
+                          "vaeg",
+                          "reol",
+                          "skab",
+                          "plade",
+                          "hylde",
+                          "skuffe",
+                          "grid",
+                          "skum",
+                          "bin",
+                          "udskaering",
+                          "krog",
+                          "fag",
+                          "plads",
+                          "beholder"
+                        ],
+                        "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
+                      }
+                    },
+                    "boern": {
+                      "type": "object",
+                      "description": "type (eller rod) → de typer, der må ligge i den",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "sted",
+                            "bygning",
+                            "rum",
+                            "omraade",
+                            "vaeg",
+                            "reol",
+                            "skab",
+                            "plade",
+                            "hylde",
+                            "skuffe",
+                            "grid",
+                            "skum",
+                            "bin",
+                            "udskaering",
+                            "krog",
+                            "fag",
+                            "plads",
+                            "beholder"
+                          ],
+                          "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
+                        }
+                      }
+                    },
+                    "kanBaereEnheder": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "sted",
+                          "bygning",
+                          "rum",
+                          "omraade",
+                          "vaeg",
+                          "reol",
+                          "skab",
+                          "plade",
+                          "hylde",
+                          "skuffe",
+                          "grid",
+                          "skum",
+                          "bin",
+                          "udskaering",
+                          "krog",
+                          "fag",
+                          "plads",
+                          "beholder"
+                        ],
+                        "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
+                      }
+                    },
+                    "forslag": {
+                      "oneOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "foraelder": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "kodeskabelon": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "koder": {
+                              "type": "object",
+                              "description": "type → foreslået kode eller null",
+                              "additionalProperties": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me": {
       "get": {
         "summary": "Hvem er du, dine lagre og deres tal, og installationens moduler",
         "responses": {
           "200": {
             "description": "Person, konto, lagre med roller, moduler (id → til), tal pr. lager"
+          }
+        }
+      }
+    },
+    "/me/mails": {
+      "get": {
+        "summary": "Dine mails: de notifikationer, du selv har slået til (standard fra, #101)",
+        "description": "Kun typerne, der er relevante for dig på installationen: rykker (modulet rykkere), klar_til_afhentning (bestillinger), vedligehold (kun lageransvarlige). Bestillingslisten til leverandøren er ikke en notifikation og står ikke her; login-linket er ikke en lagermail.",
+        "responses": {
+          "200": {
+            "description": "{ mails: [{ type, til, opdateret }] }"
+          }
+        }
+      },
+      "put": {
+        "summary": "Slå dine egne mailtyper til eller fra",
+        "description": "Altid dine egne; en lageransvarlig kan ikke ændre andres (personId, person eller email i kroppen er 403). En type, du ikke kan vælge, er 422.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mails": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "boolean"
+                    },
+                    "description": "mailtype → til"
+                  }
+                },
+                "required": [
+                  "mails"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ mails: [{ type, til, opdateret }] }"
           }
         }
       }
@@ -4009,6 +7017,609 @@
         "properties": {
           "error": {
             "type": "string"
+          }
+        }
+      },
+      "Geometri": {
+        "type": "object",
+        "properties": {
+          "x_mm": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Barnets origo i forælderens INDRE koordinater: x fra venstre mod højre set forfra"
+          },
+          "y_mm": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "y bagfra og frem mod beskueren (fronten er y = dybde)"
+          },
+          "z_mm": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "z nedefra og op; for en hylde: hyldepladens overside over reolens bund"
+          },
+          "rotation": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 359,
+            "description": "Hele grader med uret set oppefra, om barnets lodrette akse gennem origo"
+          },
+          "montering": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "fritstaaende",
+              "mod_vaeg",
+              "ud_fra_vaeg",
+              "paa_vaeg",
+              "i_moebel",
+              null
+            ]
+          },
+          "adgang": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "enum": [
+                "for",
+                "bag",
+                "venstre",
+                "hoejre",
+                "top"
+              ]
+            },
+            "description": "Siderne, man kan komme til fra; null = kun for. {for, bag} er en dobbeltsidet reol"
+          },
+          "side": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "for",
+              "bag",
+              null
+            ],
+            "description": "På en dobbeltsidet reol: hvilken side tingen står på"
+          },
+          "bredde_mm": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Ydre mål langs x"
+          },
+          "dybde_mm": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Ydre mål langs y"
+          },
+          "hoejde_mm": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Ydre mål langs z; for en hylde den fri højde (null = beregn)"
+          },
+          "indre_bredde_mm": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Indre mål (det, der kan rumme noget); null = som det ydre"
+          },
+          "indre_dybde_mm": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Indre dybde"
+          },
+          "indre_hoejde_mm": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Indre højde"
+          },
+          "indre_x_mm": {
+            "type": "integer",
+            "description": "Det indre rums origo i de ydre koordinater (standard 0)"
+          },
+          "indre_y_mm": {
+            "type": "integer"
+          },
+          "indre_z_mm": {
+            "type": "integer"
+          },
+          "omrids": {
+            "description": "Polygon [[x, y], …] i mm set oppefra, eller { svg: \"M…\" }; rum der ikke er rektangler, udskæringer i skum"
+          },
+          "celle_x": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Barn af et raster: kolonne, 0-baseret fra venstre"
+          },
+          "celle_y": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Række, 0-baseret fra bag (øverst set oppefra)"
+          },
+          "celle_b": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "Antal celler i bredden (alle fire celle-felter sammen)"
+          },
+          "celle_d": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "Antal celler i dybden"
+          },
+          "hoejde_u": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "Gridfinity-højde i enheder à 7 mm"
+          }
+        },
+        "description": "Geometri i hele mm (docs/lokationer.md § 2): akserne er venstrehåndede (x højre, y mod beskueren, z op), origo i kassens bageste, venstre, nederste hjørne. I en krop rettes kun de felter, der er med; null nulstiller."
+      },
+      "Lokation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "lagerId": {
+            "type": "integer"
+          },
+          "parentId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "sted",
+              "bygning",
+              "rum",
+              "omraade",
+              "vaeg",
+              "reol",
+              "skab",
+              "plade",
+              "hylde",
+              "skuffe",
+              "grid",
+              "skum",
+              "bin",
+              "udskaering",
+              "krog",
+              "fag",
+              "plads",
+              "beholder"
+            ],
+            "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
+          },
+          "kode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Etikettens kode (/p/<kode>), unik pr. lager: store bogstaver, tal, punktum og bindestreg"
+          },
+          "navn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "aktiv",
+              "planlagt",
+              "nedlagt"
+            ],
+            "description": "planlagt ⇔ planId er sat: lokationen findes kun i et scenarie"
+          },
+          "planId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Scenariet (lokationsplaner, #33), lokationen er planlagt i. Scenarie-tools (#33, #86) skriver kun lokationer med planId; at vedtage en plan er et menneskes klik. null = den rigtige verden."
+          },
+          "sortering": {
+            "type": "integer"
+          },
+          "version": {
+            "type": "integer",
+            "description": "Optimistisk lås: send den med en rettelse, så svarer en ændring i mellemtiden 409"
+          },
+          "kapacitet": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "1 = fast plads; null = ubegrænset"
+          },
+          "modelId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Fast plads: modellen, der hører til (skumudskæring, krog)"
+          },
+          "fastTag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fast plads: netop denne enhed"
+          },
+          "enhedTag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Lokationen ER denne enhed (beholder, valgfrit reol eller skab)"
+          },
+          "skabelonId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "geometri": {
+            "$ref": "#/components/schemas/Geometri"
+          },
+          "egenskaber": {
+            "type": "object",
+            "description": "Typens egne felter (raster, hultrin, pladetykkelse_mm …) og brugerfelter"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "oprettet": {
+            "type": "string"
+          },
+          "opdateret": {
+            "type": "string"
+          }
+        }
+      },
+      "LokationKort": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "parentId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string"
+          },
+          "kode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "navn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "planId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sortering": {
+            "type": "integer"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "dybde": {
+            "type": "integer",
+            "description": "Niveauer under roden (roden = 0)"
+          },
+          "sti": {
+            "type": "string",
+            "description": "«Hjem › Skur › Reol R1 › Hylde 3»"
+          },
+          "kapacitet": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "modelId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "enhedTag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "geometri": {
+            "$ref": "#/components/schemas/Geometri"
+          },
+          "antal": {
+            "type": "object",
+            "properties": {
+              "boern": {
+                "type": "integer"
+              },
+              "enheder": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "Stiled": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          },
+          "kode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "navn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Lokationsfelter": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "sted",
+              "bygning",
+              "rum",
+              "omraade",
+              "vaeg",
+              "reol",
+              "skab",
+              "plade",
+              "hylde",
+              "skuffe",
+              "grid",
+              "skum",
+              "bin",
+              "udskaering",
+              "krog",
+              "fag",
+              "plads",
+              "beholder"
+            ],
+            "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
+          },
+          "kode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "navn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sortering": {
+            "type": "integer"
+          },
+          "geometri": {
+            "$ref": "#/components/schemas/Geometri"
+          },
+          "egenskaber": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Ved oprettelse startværdien; ved retning flettes den ind (et felt med null fjernes)"
+          },
+          "kapacitet": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "modelId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "fastTag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enhedTag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "description": "Ukendte felter afvises (422), så en stavefejl ikke forsvinder."
+      },
+      "Evnetype": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "lagerId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "null = hele installationens; ellers ét lagers egen"
+          },
+          "noegle": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,47}$"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "beskrivelse": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parametre": {
+            "type": "object",
+            "description": "Skemaet: { felt: { type: tekst|tal|heltal|ja_nej|valg|tekster, navn?, enhed?, valg?, paakraevet? } }"
+          },
+          "arves": {
+            "type": "boolean",
+            "description": "Gælder evnen også for alt under lokationen"
+          },
+          "kilde": {
+            "type": "string",
+            "enum": [
+              "indbygget",
+              "bruger"
+            ]
+          },
+          "aktiv": {
+            "type": "boolean"
+          }
+        },
+        "description": "En slags evne, en lokation kan have (opladning, udsugning, strøm, klima, sikkerhed, proceszone …). Typerne er data (#87)."
+      },
+      "EffektivEvne": {
+        "type": "object",
+        "properties": {
+          "evnetypeId": {
+            "type": "integer"
+          },
+          "noegle": {
+            "type": "string"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "parametre": {
+            "type": "object",
+            "description": "Flettet ned gennem træet: nærmeste lokation vinder pr. felt"
+          },
+          "fra": {
+            "description": "Den nærmeste lokation, der har sat eller rettet evnen: { id, kode, navn, type }"
+          },
+          "arvet": {
+            "type": "boolean",
+            "description": "Kommer evnen (helt eller delvist) oppefra"
+          },
+          "mangler": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Et påkrævet felt, der mangler i den effektive evne (fx efter en flytning); blokeres ikke, men vises"
+          }
+        }
+      },
+      "Kravsvar": {
+        "type": "object",
+        "properties": {
+          "evnetypeId": {
+            "type": "integer"
+          },
+          "noegle": {
+            "type": "string"
+          },
+          "haardt": {
+            "type": "boolean"
+          },
+          "opfyldt": {
+            "type": "boolean"
+          },
+          "grund": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Det første, der mangler"
           }
         }
       }

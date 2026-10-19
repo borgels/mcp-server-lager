@@ -12,7 +12,11 @@ Navn, titel og beskrivelse er håndplukket i `src/tools/katalog.ts`, så en mode
 
 **Læs (altid på):** `lager_me`, `lager_projekter`, `lager_mine`, `lager_opslag`, `lager_plads`, `lager_model`, `lager_saet`, `lager_forbrugsvarer`, `lager_bestillinger`, `lager_bookinger`, `lager_tilgaengelighed`, og for den lageransvarlige `lager_ansvarlig_overblik`, `_koe`, `_modeller`, `_pakkeliste`, `_enheder`, `_forbrugsvarer`, `_bestillinger`, `_perioder`, `_afregninger`, `_pladser`, `_pluk`, `_optaellinger`.
 
-**Skriv (opt-in via `LAGER_ENABLE_WRITES=true`):** `lager_tjek_ud`, `lager_aflever`, `lager_flyt_projekt`, `lager_forbrug`, `lager_bestil`, `lager_bestilling_hent`, `lager_bestilling_fortryd`, `lager_book`, `lager_booking_status`, og for den lageransvarlige `lager_ansvarlig_modtag_levering`, `_saet_paa_plads`, `_send_bestillingsliste`, `_afklar_ukendt`, optællingen (`_optaelling_start`, `_scan`, `_goer_op`, `_afgoer`, `_luk`), pladser (`_ny_zone`, `_ny_reol`), stamdata (`_ret_model`, `_ret_enhed`) og sæt (`_saet_tilfoej_del`, `_saet_fjern_del`, `_saet_pakkeliste`). Hver skrivning får sin egen `Idempotency-Key`.
+**Lokationer, evner og IoT (læs):** `lager_lokationer` (træet), `lager_lokation`, `lager_lokation_kode`, `lager_hvor_er`, `lager_belaegning`, `lager_lokationstyper`, `lager_lokation_evner`, `lager_evnetyper`, `lager_ansvarlig_model_krav`, og med modulet `iot` `lager_iot_enheder`, `lager_iot_maalinger` (en lokation), `lager_iot_enhed_maalinger` (én føler) og `lager_dugpunkt`. Har operationen et `operationId` i kortet, er det værktøjets navn.
+
+**Skriv (opt-in via `LAGER_ENABLE_WRITES=true`):** `lager_tjek_ud`, `lager_aflever`, `lager_flyt_projekt`, `lager_forbrug`, `lager_bestil`, `lager_bestilling_hent`, `lager_bestilling_fortryd`, `lager_book`, `lager_booking_status`, og for den lageransvarlige `lager_ansvarlig_modtag_levering`, `_saet_paa_plads`, `_send_bestillingsliste`, `_afklar_ukendt`, optællingen (`_optaelling_start`, `_scan`, `_goer_op`, `_afgoer`, `_luk`), pladser (`_ny_zone`, `_ny_reol`), stamdata (`_ret_model`, `_ret_enhed`), sæt (`_saet_tilfoej_del`, `_saet_fjern_del`, `_saet_pakkeliste`), lokationer (`_lokation_opret`, `_lokation_ret`, `_lokation_flyt`, `_lokation_nedlaeg`), evner og krav (`_lokation_evne_saet`, `_lokation_evne_fjern`, `_evnetype_opret`, `_evnetype_ret`, `_model_krav_saet`) og `lager_ansvarlig_iot_skift` (tænd/sluk gennem Home Assistant; en skrivning, men ikke destruktiv). Scenarier og planlagte lokationer får egne værktøjer senere.
+
+**Idempotens og nye forsøg:** hvert skrivende tool-kald får én `Idempotency-Key`, afledt af brugeren, sessionen, JSON-RPC-id'et, værktøjet og argumenterne; flere skrivninger i ét kald får `-2`, `-3` … Sender klienten `_meta.idempotencyKey`, bruges den i stedet for session og id, så en agent, der gentager hele kaldet, også får ét resultat. Ved 429 venter serveren `Retry-After` (højst `LAGER_RETRY_MAX_VENT_MS`, standard 30 s; længere gives videre som fejl), og ved 502/503/504 eller en netværksfejl prøver den igen med kort backoff, højst `LAGER_RETRY_MAX` gange (standard 3), altid med samme nøgle.
 
 **Bevidst fraværende:** afregningens godkend, bogfør og afvis (den lageransvarliges klik i appen), salg af værktøj, kassation, prisrettelser, rettelser af lejeperioder og udtag, import. Overtagelse kræver et foto og hører til telefonen. Hver operation i OpenAPI-kortet uden et værktøj står i `UDEN_VAERKTOEJ` med sin grund.
 
@@ -25,6 +29,8 @@ Navn, titel og beskrivelse er håndplukket i `src/tools/katalog.ts`, så en mode
 | `lager://lagre` | Dine lagre med roller, installationens moduler og tal |
 | `lager://plads/{kode}` | En plads (fx `A-12-3`) og enhederne, der hører til dér |
 | `lager://enhed/{tag}` | Opslag på et mærke: hvad, hvem har det, hvor skal det stå |
+| `lager://lokation/{id}` | En lokation i træet med sti, mål, børn og indhold |
+| `lager://rum/{id}/klima` | Klimaet nu: temperatur, fugt og dugpunkt inde og ude (modulet `iot`) |
 
 Prompts: `daglig-runde` («Daglig runde»), `tael-en-reol` («Tæl en reol»), `aflever-et-saet` («Aflever et sæt»), `hvor-er` («Hvor er X?»). De kalder ikke appen selv, men beskriver forløbet med værktøjerne og hvor brugeren skal bekræfte.
 
@@ -46,7 +52,7 @@ Se `.env.example`. Påkrævet: `LAGER_BASE_URL`, `LAGER_API_TOKEN`, og en bruger
 Sikkerhed:
 
 - HTTP-transporten starter kun med `LAGER_TRUST_FORWARDED_USER=true` **og** `MCP_HTTP_TOKEN` sat; brugeren kommer altid fra `X-MCP-User`. `LAGER_DEFAULT_USER` bruges kun af stdio.
-- `MCP_HTTP_TOKEN` sammenlignes i konstant tid.
+- `MCP_HTTP_TOKEN` sammenlignes i konstant tid. Under en rotation gælder `MCP_HTTP_TOKEN_FORRIGE` samtidig: sæt det nye token i `MCP_HTTP_TOKEN` og det gamle i `MCP_HTTP_TOKEN_FORRIGE`, skift gatewayen, og fjern så det forrige. Begge sammenlignes altid.
 - `LAGER_BASE_URL` skal være `https://`. http:// er kun tilladt mod loopback (lokale mocks) og mod værter, der står eksplicit i `LAGER_INTERNAL_HOSTS` (kommasepareret, eksakt værtsnavn, ingen wildcards), fx backendens containernavn på et internt Docker-netværk. URL'en tjekkes ved opstart; HTTP-transporten nægter at starte med en ugyldig værdi.
 - Mærker/tags i URL-stier afvises, hvis de er tomme, `.`/`..` eller indeholder `/`, `\`, `?`, `#` eller kodede punktummer/skråstreger.
 

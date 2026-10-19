@@ -17,6 +17,8 @@ export type JsonSkema = {
   properties?: Record<string, JsonSkema>;
   required?: string[];
   oneOf?: JsonSkema[];
+  allOf?: JsonSkema[];
+  additionalProperties?: boolean | JsonSkema;
   $ref?: string;
   description?: string;
   minimum?: number;
@@ -73,11 +75,22 @@ export function kropsskema(o: Operation, doc: OpenApiDoc = SPEC): JsonSkema | un
 }
 
 function opslaa(s: JsonSkema, doc: OpenApiDoc): JsonSkema {
+  if (s.allOf) return flet(s, doc);
   if (!s.$ref) return s;
   const navn = s.$ref.replace('#/components/schemas/', '');
   const fundet = doc.components?.schemas?.[navn];
   if (!fundet) throw new Error(`Ukendt $ref ${s.$ref}`);
-  return { ...fundet, description: s.description ?? fundet.description };
+  const r = { ...fundet, description: s.description ?? fundet.description };
+  return r.allOf ? flet(r, doc) : r;
+}
+
+/** allOf → ét objekt: delenes felter og påkrævede samlet, det ydre skemas oveni. */
+function flet(s: JsonSkema, doc: OpenApiDoc): JsonSkema {
+  const { allOf = [], ...ydre } = s;
+  const dele = allOf.map((x) => opslaa(x, doc));
+  const properties = Object.assign({}, ...dele.map((d) => d.properties ?? {}), ydre.properties ?? {});
+  const required = [...new Set([...dele.flatMap((d) => d.required ?? []), ...(ydre.required ?? [])])];
+  return { ...ydre, type: 'object', properties, ...(required.length ? { required } : {}) };
 }
 
 /** Et flag i forespørgslen ({ enum: ["1"] }): værktøjet tager en boolean, appen får «1». */
@@ -95,7 +108,7 @@ export function tilZod(skema: JsonSkema | undefined, doc: OpenApiDoc = SPEC): z.
     t = dele.length === 1 ? dele[0]! : z.union(dele as [z.ZodType, z.ZodType, ...z.ZodType[]]);
   } else if (Array.isArray(s.type)) {
     const typer = s.type.filter((x) => x !== 'null');
-    t = tilZod({ ...s, type: typer[0] }, doc);
+    t = tilZod({ ...s, type: typer[0], ...(s.enum ? { enum: s.enum.filter((x) => x !== null) } : {}) }, doc);
     if (s.type.includes('null')) t = t.nullable();
   } else if (s.enum && s.enum.every((x) => typeof x === 'string')) {
     t = z.enum(s.enum as [string, ...string[]]);
@@ -125,6 +138,12 @@ export function tilZod(skema: JsonSkema | undefined, doc: OpenApiDoc = SPEC): z.
         t = z.array(tilZod(s.items, doc));
         break;
       case 'object': {
+        // Uden felter (fx egenskaber, parametre, meta): et frit objekt, så nøglerne ikke skrælles af.
+        if (!s.properties || s.additionalProperties) {
+          const v = typeof s.additionalProperties === 'object' ? tilZod(s.additionalProperties, doc) : z.unknown();
+          t = z.record(z.string(), v);
+          break;
+        }
         const req = new Set(s.required ?? []);
         const shape: Record<string, z.ZodType> = {};
         for (const [k, v] of Object.entries(s.properties ?? {})) shape[k] = req.has(k) ? tilZod(v, doc) : tilZod(v, doc).optional();

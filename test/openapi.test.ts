@@ -53,6 +53,14 @@ describe('OpenAPI-øjebliksbilledet', () => {
     expect(CAPABILITIES.map((c) => c.tool).sort()).toEqual(['lager_search_capabilities', ...navne].sort());
   });
 
+  it('værktøjets navn er operationens operationId, når kortet har én', () => {
+    const forkerte = KATALOG.filter((s) => {
+      const id = (operation(s.op) as { operationId?: string } | undefined)?.operationId;
+      return id !== undefined && id !== s.navn;
+    }).map((s) => s.navn);
+    expect(forkerte).toEqual([]);
+  });
+
   it('skemaerne kommer fra kortet: påkrævet, typer og flag', () => {
     const book = byg(KATALOG.find((s) => s.navn === 'lager_book')!);
     expect(Object.keys(book.shape).sort()).toEqual(['antal', 'fra', 'kategori', 'lagerId', 'model', 'note', 'projektId', 'tag', 'til'].sort());
