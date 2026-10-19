@@ -198,21 +198,21 @@ describe('resources og prompts', () => {
     const stier = fetchFn.mock.calls.map((c) => (c as unknown as Kald)[0].pathname);
     expect(stier).toEqual(['/api/lager/opslag/T-00012', '/api/lager/pladser/A-12-3']);
     const skabeloner = (await mcp.listResourceTemplates()).resourceTemplates.map((t) => t.uriTemplate).sort();
-    expect(skabeloner).toEqual(['lager://enhed/{tag}', 'lager://lokation/{id}', 'lager://plads/{kode}', 'lager://rum/{id}/klima']);
+    expect(skabeloner).toEqual(['lager://enhed/{tag}', 'lager://lokation/{id}', 'lager://lokation/{id}/plan', 'lager://plads/{kode}', 'lager://rum/{id}/klima', 'lager://scenarie/{id}', 'lager://scenarie/{id}/validering']);
   });
 
   it('lager://lagre giver lagre og moduler', async () => {
     const fetchFn = vi.fn(async () => svar(200, { person: { navn: 'x' }, lagre: [{ id: 1 }], moduler: { booking: true }, ansvarlig: false, tal: {} }));
     const mcp = await forbind(fetchFn as unknown as typeof fetch);
-    expect((await mcp.listResources()).resources.map((r) => r.uri)).toEqual(['lager://lagre']);
+    expect((await mcp.listResources()).resources.map((r) => r.uri)).toEqual(['lager://lagre', 'lager://skabeloner']);
     const r = await mcp.readResource({ uri: 'lager://lagre' });
     expect(JSON.parse((r.contents[0] as { text: string }).text)).toMatchObject({ lagre: [{ id: 1 }], moduler: { booking: true } });
   });
 
-  it('de fire prompts findes og bruger argumenterne', async () => {
+  it('prompts findes og bruger argumenterne', async () => {
     const mcp = await forbind(vi.fn() as unknown as typeof fetch);
     const navne = (await mcp.listPrompts()).prompts.map((p) => p.name).sort();
-    expect(navne).toEqual(['aflever-et-saet', 'daglig-runde', 'hvor-er', 'tael-en-reol']);
+    expect(navne).toEqual(['aflever-et-saet', 'daglig-runde', 'hvor-er', 'klimatjek', 'planlaeg', 'tael-en-reol']);
     const p = await mcp.getPrompt({ name: 'tael-en-reol', arguments: { omraade: 'A-12' } });
     expect((p.messages[0]!.content as { text: string }).text).toContain('lager_ansvarlig_optaelling_start (omraade: «A-12»)');
     const h = await mcp.getPrompt({ name: 'hvor-er', arguments: { hvad: 'T-00012' } });

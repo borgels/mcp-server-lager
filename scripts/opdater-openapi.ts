@@ -42,6 +42,18 @@ const ud = {
   paths: Object.fromEntries(Object.entries(doc.paths).sort(([a], [b]) => a.localeCompare(b))),
   components: { schemas: doc.components?.schemas ?? {} },
 };
+// Teksterne i kortet kan nævne installationens eget eksempel («XYZ's A-12-3») eller en person
+// («hos Fornavn»); her står kun formatet og en neutral person.
+const tekst = JSON.stringify(ud, null, 2)
+  .replace(/\b[A-ZÆØÅ]{2,}'s (?=A-12-3)/g, '')
+  .replace(/«hos [A-ZÆØÅ][a-zæøå]+»/g, '«hos en kollega»');
+// Kortet må ikke røbe en vært eller en mailadresse: kun pladsholderen og example.*.
+const vaerter = [...tekst.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)].map((m) => m[1]!).filter((h) => !/(^|\.)example\.(com|org|net)$/i.test(h));
+const mails = [...tekst.matchAll(/[\w.+-]+@[\w-]+\.[\w.-]+/g)].map((m) => m[0]).filter((m) => !/@example\.(com|org|net)$/i.test(m));
+if (vaerter.length || mails.length) {
+  console.error(`Kortet nævner ${[...new Set([...vaerter, ...mails])].join(', ')}; ret det i backenden, før øjebliksbilledet gemmes.`);
+  process.exit(1);
+}
 const fil = fileURLToPath(new URL('../openapi/lager.json', import.meta.url));
-await writeFile(fil, `${JSON.stringify(ud, null, 2)}\n`, 'utf8');
+await writeFile(fil, `${tekst}\n`, 'utf8');
 console.error(`Skrev ${fil}: ${Object.keys(ud.paths).length} stier, version ${ud.info.version}.`);

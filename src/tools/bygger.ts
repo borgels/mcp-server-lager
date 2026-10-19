@@ -18,6 +18,8 @@ export type Bygget = {
   shape: Record<string, z.ZodType>;
   skriv: boolean;
   sletter: boolean;
+  /** idempotentHint: samme kald igen ændrer intet ud over det første. */
+  idempotent: boolean;
   moduler: string[];
   ops: OpNoegle[];
   send: (client: LagerClient) => Sender;
@@ -120,7 +122,7 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
     const plan = planer.get(op);
     if (!plan) throw new Error(`${spec.navn} bruger ikke ${op}`);
     const { metode: m, sti } = splitOp(op);
-    const query: Record<string, string | number | boolean | undefined> = {};
+    const query: Record<string, string | number | boolean | undefined | (string | number)[]> = {};
     const krop: Record<string, unknown> = { ...(spec.fast ?? {}) };
     let sti2 = sti;
     for (const [navn, p] of Object.entries(plan.felter)) {
@@ -132,7 +134,7 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
         continue;
       } else if (p.hvor === 'query') {
         if (p.flag) query[p.api] = v ? '1' : undefined;
-        else query[p.api] = v as string | number | boolean;
+        else query[p.api] = v as string | number | boolean | (string | number)[];
       } else {
         krop[p.api] = v;
       }
@@ -146,6 +148,7 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
     shape,
     skriv: metode !== 'get',
     sletter: metode === 'delete' || !!spec.destruktiv,
+    idempotent: metode === 'get' || (spec.idempotent ?? metode !== 'post'),
     moduler: [...new Set(ops.flatMap((op) => modulerFor(op, doc)))].sort(),
     ops,
     send,

@@ -16,6 +16,13 @@ describe('OpenAPI-øjebliksbilledet', () => {
     expect(doc.servers.map((s) => s.url)).toEqual(['https://lager.example.com/api/lager']);
   });
 
+  it('nævner ingen vært eller mailadresse ud over example.*', () => {
+    const tekst = JSON.stringify(SPEC);
+    const vaerter = [...tekst.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)].map((m) => m[1]).filter((h) => !/(^|\.)example\.(com|org|net)$/i.test(h!));
+    const mails = [...tekst.matchAll(/[\w.+-]+@[\w-]+\.[\w.-]+/g)].map((m) => m[0]).filter((m) => !/@example\.(com|org|net)$/i.test(m));
+    expect([...vaerter, ...mails]).toEqual([]);
+  });
+
   it('hver værktøjs operation findes i kortet', () => {
     const mangler = [...brugte].filter((op) => !operation(op));
     expect(mangler).toEqual([]);
