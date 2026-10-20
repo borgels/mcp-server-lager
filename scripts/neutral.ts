@@ -1,7 +1,8 @@
 /**
  * Det offentlige øjebliksbillede må ikke røbe, hvem der kører lageret: ingen
  * værter, mailadresser, firma- eller personnavne. Bruges af opdater-openapi
- * (nægter at skrive) og test/openapi.test.ts.
+ * (nægter at skrive) og test/openapi.test.ts. Backenden holder selv sine
+ * eksempler neutrale; listen her er det sidste værn.
  *
  * Forbudte ord står som SHA-256 (de første 16 hex-tegn) af ordet med små
  * bogstaver, så listen selv ikke nævner dem. Hvert ord og hvert ordpar i
@@ -23,13 +24,6 @@ const FORBUDTE = new Set([
 const NEUTRALE_NAVNE = new Set(['Kim']);
 
 const hash = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 16);
-
-/** Installationens egne eksempler gjort neutrale: «XYZ's A-12-3» → «A-12-3», «hos Fornavn» → «hos en kollega». */
-export function goerNeutral(tekst: string): string {
-  return tekst
-    .replace(/\b[A-ZÆØÅ]{2,}'s (?=A-12-3)/g, '')
-    .replace(/«hos ([A-ZÆØÅ][a-zæøå]+)»/g, (hel, navn: string) => (NEUTRALE_NAVNE.has(navn) ? hel : '«hos en kollega»'));
-}
 
 /** Det, der ikke må stå i et offentligt kort; tom, når teksten er ren. */
 export function fund(tekst: string): string[] {

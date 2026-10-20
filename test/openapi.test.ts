@@ -3,11 +3,11 @@
 // grund til at mangle ét. Når backenden får en ny rute, og øjebliksbilledet
 // opdateres (npm run openapi:opdater), fejler testen her, indtil den er taget stilling til.
 import { describe, expect, it } from 'vitest';
-import { KATALOG, UDEN_VAERKTOEJ } from '../src/tools/katalog.js';
+import { KATALOG, UDEN_VAERKTOEJ, UDEN_VAERKTOEJ_HER, UDEN_VAERKTOEJ_I_KORTET, type ToolSpec } from '../src/tools/katalog.js';
 import { byg } from '../src/tools/bygger.js';
-import { alleOperationer, operation, SPEC, splitOp, type OpNoegle } from '../src/openapi/spec.js';
+import { alleOperationer, operation, SPEC, splitOp, udenVaerktoejIKortet, type OpenApiDoc, type OpNoegle } from '../src/openapi/spec.js';
 import { CAPABILITIES } from '../src/lager/capabilities.js';
-import { fund, goerNeutral } from '../scripts/neutral.js';
+import { fund } from '../scripts/neutral.js';
 
 const brugte = new Set<OpNoegle>(KATALOG.flatMap((s) => byg(s).ops));
 
@@ -25,7 +25,66 @@ describe('OpenAPI-øjebliksbilledet', () => {
     expect(fund('se https://lager.intern.test og a@b.test')).toEqual(['lager.intern.test', 'a@b.test']);
     expect(fund('«hos Fornavn»')).toEqual(['«hos Fornavn»']);
     expect(fund('«hos Kim» (Sag 1001) og https://lager.example.com')).toEqual([]);
-    expect(goerNeutral('zone-reol-hylde = ABC\'s A-12-3, «hos Fornavn», «hos Kim»')).toBe('zone-reol-hylde = A-12-3, «hos en kollega», «hos Kim»');
+  });
+
+  it('x-mcp: { vaerktoej: false, grund } giver ingen værktøj, og grunden er lagerets', () => {
+    expect(Object.keys(UDEN_VAERKTOEJ_I_KORTET).length).toBeGreaterThan(0);
+    for (const [op, grund] of Object.entries(UDEN_VAERKTOEJ_I_KORTET) as [OpNoegle, string][]) {
+      const x = (operation(op) as { 'x-mcp'?: { vaerktoej?: boolean; grund?: string } })['x-mcp'];
+      expect(x?.vaerktoej, op).toBe(false);
+      expect(grund, op).toBe(x?.grund);
+      expect(UDEN_VAERKTOEJ[op], op).toBe(grund);
+      expect(brugte.has(op), op).toBe(false);
+    }
+    // Lånerens link og kanbankortets token og etiketter er aldrig et værktøj.
+    expect(UDEN_VAERKTOEJ_I_KORTET['POST /udlaan/{id}/link']).toBeDefined();
+    expect(UDEN_VAERKTOEJ_I_KORTET['GET /ansvarlig/kanban/{id}/link']).toBeDefined();
+    expect([...brugte].filter((op) => /\/link$|^POST \/(laan|kanban)\b|\/kanban\/etiketter/.test(op))).toEqual([]);
+  });
+
+  it('UDEN_VAERKTOEJ_HER gentager ikke lagerets egne markeringer', () => {
+    expect(Object.keys(UDEN_VAERKTOEJ_HER).filter((op) => op in UDEN_VAERKTOEJ_I_KORTET)).toEqual([]);
+  });
+
+  it('et værktøj på en operation markeret uden værktøj afvises, og en markering uden grund får en', () => {
+    const doc: OpenApiDoc = {
+      info: { version: 't' },
+      paths: {
+        '/hemmelig': { post: { 'x-mcp': { vaerktoej: false, grund: 'Et token.' } } },
+        '/tom': { get: { 'x-mcp': { vaerktoej: false } } },
+        '/aaben': { get: { 'x-mcp': { vaerktoej: true } } },
+      },
+    };
+    expect(udenVaerktoejIKortet(doc)).toEqual({ 'POST /hemmelig': 'Et token.', 'GET /tom': expect.stringContaining('x-mcp') });
+    const spec: ToolSpec = { navn: 'x', titel: 'x', beskrivelse: 'x', kort: 'x', eksempler: [], op: 'POST /hemmelig' };
+    expect(() => byg(spec, doc)).toThrow(/x-mcp/);
+    expect(() => byg({ ...spec, op: 'GET /aaben' }, doc)).not.toThrow();
+  });
+
+  it('kameraernes billede og strømme er ikke værktøjer, listen er', () => {
+    expect([...brugte].filter((op) => op.includes('/iot/kameraer/'))).toEqual([]);
+    expect(brugte.has('GET /iot/kameraer')).toBe(true);
+  });
+
+  it('frigivelsen i et procesforløb er destruktiv og beder om brugerens bekræftelse', () => {
+    const s = KATALOG.find((k) => k.navn === 'lager_procesforloeb_udfoer')!;
+    expect(byg(s).sletter).toBe(true);
+    expect(s.beskrivelse).toMatch(/bekræft altid med brugeren/i);
+    expect(s.beskrivelse).toMatch(/asbest/);
+    for (const navn of ['lager_ansvarlig_placeringsregel_ret', 'lager_ansvarlig_procesflow_ret']) {
+      const r = KATALOG.find((k) => k.navn === navn)!;
+      expect(byg(r).sletter, navn).toBe(true);
+      expect(r.beskrivelse, navn).toMatch(/udtrykkelige ja/);
+    }
+  });
+
+  it('Skabelonbarn kender Geometri-felterne gennem allOf, uden at tillade ukendte nøgler', () => {
+    const opret = byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_skabelon_opret')!);
+    const boern = opret.shape.boern ?? opret.shape.children;
+    expect(boern, 'skabelonens børn').toBeDefined();
+    expect(boern!.safeParse([{ type: 'hylde', z_mm: 400 }]).success).toBe(true);
+    const parsed = boern!.parse([{ type: 'hylde', z_mm: 400, ukendt: 1 }]) as Record<string, unknown>[];
+    expect(parsed[0]).toEqual({ type: 'hylde', z_mm: 400 });
   });
 
   it('hver værktøjs operation findes i kortet', () => {

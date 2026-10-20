@@ -31,6 +31,8 @@ export type Operation = {
   description?: string;
   parameters?: Parameter[];
   requestBody?: { required?: boolean; content?: { 'application/json'?: { schema?: JsonSkema } } };
+  /** Lagerets egen stillingtagen: `vaerktoej: false` = ingen værktøj, med grunden. */
+  'x-mcp'?: { vaerktoej?: boolean; grund?: string };
 };
 type PathItem = Partial<Record<Metode, Operation>> & { 'x-moduler'?: string[] };
 export type OpenApiDoc = { info: { version: string }; paths: Record<string, PathItem>; components?: { schemas?: Record<string, JsonSkema> } };
@@ -62,6 +64,20 @@ export function alleOperationer(doc: OpenApiDoc = SPEC): OpNoegle[] {
   return Object.entries(doc.paths).flatMap(([sti, item]) =>
     METODER.filter((m) => item[m]).map((m) => `${m.toUpperCase()} ${sti}` as OpNoegle),
   );
+}
+
+/**
+ * Operationerne, lageret selv har markeret `x-mcp: { vaerktoej: false, grund }`
+ * (fx lånerens link, kanbankortets token): ingen værktøj, med lagerets grund.
+ * De tæller som UDEN_VAERKTOEJ, og et værktøj må ikke bruge dem.
+ */
+export function udenVaerktoejIKortet(doc: OpenApiDoc = SPEC): Partial<Record<OpNoegle, string>> {
+  const ud: Partial<Record<OpNoegle, string>> = {};
+  for (const op of alleOperationer(doc)) {
+    const x = operation(op, doc)?.['x-mcp'];
+    if (x?.vaerktoej === false) ud[op] = x.grund?.trim() || 'Lageret har markeret operationen som uden værktøj (x-mcp).';
+  }
+  return ud;
 }
 
 /** De moduler, stien kræver (x-moduler fra backendens rutekort). */
@@ -98,13 +114,6 @@ export function erFlag(s: JsonSkema | undefined): boolean {
   return !!s && s.type === 'string' && Array.isArray(s.enum) && s.enum.length === 1 && s.enum[0] === '1';
 }
 
-/**
- * Skemaer, hvis felter kortet kun nævner i beskrivelsen: Skabelonbarn tager
- * Geometri-felterne direkte (z_mm, celle_x …). De beholder ukendte nøgler, så
- * zod ikke skræller dem af; appen validerer dem.
- */
-const AABNE_SKEMAER = new Set(['Skabelonbarn']);
-
 const refCache = new WeakMap<OpenApiDoc, { faerdige: Map<string, z.ZodType>; paaVej: Set<string> }>();
 
 /**
@@ -127,7 +136,6 @@ function refTilZod(skema: JsonSkema, doc: OpenApiDoc): z.ZodType {
       paaVej.add(navn);
       try {
         t = tilZod(fundet, doc);
-        if (AABNE_SKEMAER.has(navn) && t instanceof z.ZodObject) t = t.loose();
       } finally {
         paaVej.delete(navn);
       }
