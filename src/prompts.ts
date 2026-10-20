@@ -102,7 +102,7 @@ export function registerLagerPrompts(server: McpServer): void {
           '   - Læg kun de linjer, jeg har taget imod, i kladden med scenario_placer (forslagets placer-linjer, version og kilde: motor). Svarer det 409, er scenariet ændret: lav et nyt forslag; 422: en regel eller et hårdt krav forbyder pladsen, så find en anden.\n' +
           '4. Valider hvert forslag med scenario_valider og scenario_vurder_placering, og ret det, til der ingen fejl er; forklar de advarsler, der er tilbage (kollisioner, smalle gange, vægt, kapacitet, krav til evner, brudte placeringskrav).\n' +
           `5. ${n > 1 ? 'Sammenlign forslagene med scenario_sammenlign (ider kommasepareret) og vis' : 'Vis'} pris, ny kapacitet, flytninger, placeringernes score og advarsler i en kort tabel med din anbefaling, og hvorfor. Spørg, om noget skal justeres; så gentager du trin 3 og 4 for det forslag.\n\n` +
-          'Du arbejder kun i scenarier: det rigtige træ ændres ikke. Vedtagelsen er den lageransvarliges beslutning i appen; sig, hvilket scenarie du anbefaler, men vedtag intet. Slet eller forkast ingen scenarier eller zoner, jeg ikke selv har bedt om. Ret ikke særhåndteringsmærker, placeringsregler eller procesflows som en del af planen.',
+          'Du arbejder kun i scenarier: det rigtige træ ændres ikke. Vedtagelsen er den lageransvarliges beslutning i appen; sig, hvilket scenarie du anbefaler, men vedtag intet. Slet eller forkast ingen scenarier eller zoner, jeg ikke selv har bedt om. Ret ikke særhåndteringsmærker (hverken mærkerne selv eller maerker på enheder og modeller), placeringsregler eller procesflows som en del af planen; maerker på en scenarieting eller en placering i scenariet er kun planens egne.',
       );
     },
   );

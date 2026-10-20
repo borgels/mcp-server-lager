@@ -48,10 +48,10 @@ describe('placeringsmotoren', () => {
     const [url, init] = kald(fetchFn)[0]!;
     expect([init.method, url.pathname]).toEqual(['POST', '/api/lager/scenarier/4/placering']);
     expect(JSON.parse(String(init.body))).toEqual(krop);
-    // Det forældede asbest står ikke i skemaet; maerker gør.
+    // Det forældede asbest står i skemaet som et felt, der altid afvises; maerker er vejen.
     const ting = (t.inputSchema.properties as Record<string, Skema>).ting!.items!;
     expect(felter(ting)).toContain('maerker');
-    expect(felter(ting)).not.toContain('asbest');
+    expect(ting.properties!.asbest).toMatchObject({ not: {} });
   });
 
   it('scenario_vurder_placering læser med stilling', async () => {
@@ -68,7 +68,12 @@ describe('placeringsmotoren', () => {
     const t = tools.find((x) => x.name === 'scenario_placer')!;
     expect(t.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false, idempotentHint: true });
     expect(t.description).toMatch(/409/);
-    expect(felter((t.inputSchema.properties as Record<string, Skema>).placeringer!.items)).not.toContain('asbest');
+    expect((t.inputSchema.properties as Record<string, Skema>).placeringer!.items!.properties!.asbest).toMatchObject({ not: {} });
+    // version er påkrævet: uden den kunne et gentaget kald lægge linjerne oven i et ændret scenarie.
+    expect(t.inputSchema.required).toContain('version');
+    const udenVersion = await mcp.callTool({ name: 'scenario_placer', arguments: { scenarieId: 4, placeringer: [{ enhed: 'T-00012', lokationId: 30 }] } });
+    expect(udenVersion.isError).toBe(true);
+    expect(fetchFn).not.toHaveBeenCalled();
     const krop = { placeringer: [{ enhed: 'T-00012', lokationId: 30 }, { model: 12, antal: 2, lokationId: 31 }], version: 7, kilde: 'motor' };
     const r = await mcp.callTool({ name: 'scenario_placer', arguments: { scenarieId: 4, ...krop } });
     expect(r.isError).toBeFalsy();
@@ -150,26 +155,53 @@ describe('særhåndteringsmærker', () => {
     expect(cert.default).toBeUndefined();
   });
 
-  it('maerker afløser de forældede asbest, asbestStandard og hvem.asbest i skemaerne', async () => {
+  it('maerker afløser de forældede asbest, asbestStandard og hvem.asbest: skemaerne viser maerker, og ret_enhed og ret_model er destruktive', async () => {
     const mcp = await forbind(vi.fn() as unknown as typeof fetch);
     const { tools } = await mcp.listTools();
     const skema = (n: string) => tools.find((x) => x.name === n)!.inputSchema as Skema;
     for (const n of ['lager_ansvarlig_ret_enhed', 'lager_ansvarlig_ret_model', 'scenario_tilfoej_ting']) {
       expect(felter(skema(n)), n).toContain('maerker');
-      expect(felter(skema(n)), n).not.toContain('asbest');
-      expect(felter(skema(n)), n).not.toContain('asbestStandard');
       expect(tools.find((x) => x.name === n)!.description, n).toMatch(/maerker/);
     }
-    for (const n of ['lager_ansvarlig_placeringsregel_opret', 'lager_ansvarlig_placeringsregel_ret']) {
-      const hvem = skema(n).properties!.hvem!;
-      expect(felter(hvem), n).toEqual(expect.arrayContaining(['maerker', 'udenMaerker']));
-      expect(felter(hvem), n).not.toContain('asbest');
+    for (const n of ['lager_ansvarlig_ret_enhed', 'lager_ansvarlig_ret_model']) {
+      const t = tools.find((x) => x.name === n)!;
+      expect(t.annotations, n).toMatchObject({ destructiveHint: true });
+      expect(t.description, n).toMatch(/ERSTATTER hele listen: læs først .* nuværende mærker .* send den fulde liste, og fjern kun et mærke efter brugerens udtrykkelige ja/);
     }
-    const hvem = skema('lager_ansvarlig_procesflow_opret').properties!.start!.properties!.hvem!;
-    expect(felter(hvem)).toContain('maerker');
-    expect(felter(hvem)).not.toContain('asbest');
+    for (const n of ['lager_ansvarlig_placeringsregel_opret', 'lager_ansvarlig_placeringsregel_ret']) {
+      expect(felter(skema(n).properties!.hvem), n).toEqual(expect.arrayContaining(['maerker', 'udenMaerker']));
+    }
+    expect(felter(skema('lager_ansvarlig_procesflow_opret').properties!.start!.properties!.hvem)).toContain('maerker');
     // Rettelsens start er et frit objekt i kortet: beskrivelsen siger, at det er maerker.
     expect(tools.find((x) => x.name === 'lager_ansvarlig_procesflow_ret')!.description).toMatch(/start\.hvem.*maerker.*ikke det forældede asbest/);
+  });
+
+  // Et forældet felt må aldrig skrælles af i stilhed: hvem: { asbest: true } ville blive hvem: {} = alt udstyr.
+  const FORAELDEDE: [string, Record<string, unknown>][] = [
+    ['lager_ansvarlig_ret_enhed', { tag: 'T-00012', asbest: true }],
+    ['lager_ansvarlig_ret_model', { modelId: 12, asbestStandard: true }],
+    ['scenario_tilfoej_ting', { scenarieId: 4, navn: 'Kasse', asbest: true }],
+    ['lager_ansvarlig_placeringsregel_opret', { noegle: 'x', navn: 'x', slags: 'skal_staa', hvem: { asbest: true }, steder: ['saerzone'] }],
+    ['lager_ansvarlig_placeringsregel_ret', { placeringsregelId: 4, hvem: { asbest: false } }],
+    ['lager_ansvarlig_procesflow_opret', { noegle: 'x', navn: 'x', status: 'karantaene', start: { ved: 'retur', hvem: { asbest: true } }, trin: [] }],
+    ['scenario_foreslaa_placering', { scenarieId: 4, ting: [{ enhed: 'T-00012', asbest: true }] }],
+    ['scenario_placer', { scenarieId: 4, version: 7, placeringer: [{ enhed: 'T-00012', lokationId: 30, asbest: true }] }],
+  ];
+  it.each(FORAELDEDE)('%s afviser det forældede asbestfelt og sender intet', async (navn, args) => {
+    const fetchFn = vi.fn(async () => svar(200, {}));
+    const mcp = await forbind(fetchFn as unknown as typeof fetch);
+    const r = await mcp.callTool({ name: navn, arguments: args });
+    expect(r.isError).toBe(true);
+    expect(tekst(r)).toMatch(/forældet; brug maerker: \['asbest'\]/);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('skjul og forbyd, der ikke rammer noget felt, er en fejl i kataloget', () => {
+    const spec = { navn: 'x', titel: 'x', beskrivelse: 'x', kort: 'x', eksempler: [], op: 'PUT /ansvarlig/enheder/{tag}' as const };
+    expect(() => byg({ ...spec, skjul: ['findesIkke'] })).toThrow(/skjul\/forbyd findesIkke findes ikke/);
+    expect(() => byg({ ...spec, skjul: ['a.b.c'] })).toThrow(/a\.b\.c findes ikke/);
+    expect(() => byg({ ...spec, forbyd: { 'hvem.asbest': 'x' } })).toThrow(/hvem\.asbest findes ikke/);
+    expect(() => byg({ ...spec, skjul: ['koebspris'], forbyd: { asbest: 'x' } })).not.toThrow();
   });
 
   it('skjul rammer felter flere led nede, også gennem $ref og linjer', () => {
@@ -205,6 +237,7 @@ describe('prompten planlaeg: interview, forslag, scenarier, validering og sammen
     expect(t).toContain('vedtag intet');
     expect(t).toContain('Slet eller forkast ingen scenarier');
     expect(t).not.toContain('scenario_vedtag');
+    expect(t).toContain('maerker på enheder og modeller');
     // Forslaget skal godkendes, før det lægges i kladden.
     expect(t.indexOf('scenario_foreslaa_placering')).toBeLessThan(t.indexOf('scenario_placer ('));
     expect(t).toMatch(/kun de linjer, jeg har taget imod/);

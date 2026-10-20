@@ -28,6 +28,11 @@ export type ToolSpec = {
   alias?: Record<string, string>;
   /** API-felter, værktøjet ikke viser; «linjer.fotoId» rammer feltet på hver linje, «start.hvem.asbest» et felt længere nede. */
   skjul?: string[];
+  /**
+   * API-felter (stier som i skjul), der står i skemaet, men altid afvises med beskeden:
+   * forældede felter, der ellers ville blive skrællet af i stilhed (fx hvem.asbest → alle).
+   */
+  forbyd?: Record<string, string>;
   /** Faste værdier i kroppen, som værktøjet ikke viser. */
   fast?: Record<string, unknown>;
   /** Indskrænk et felts enum-værdier, fx «afgoerelse.slags»: resten er appens. */
@@ -86,6 +91,11 @@ export const FAELLES_BESKRIVELSER: Record<string, string> = {
   til: 'ÅÅÅÅ-MM-DD',
   dato: 'ÅÅÅÅ-MM-DD',
 };
+
+/** Forældede asbestfelter (#156): de afvises, så et kald aldrig skrælles af i stilhed (hvem: {} = alle). */
+const ASBEST = "asbest er forældet; brug maerker: ['asbest'].";
+const ASBEST_STANDARD = "asbestStandard er forældet; brug maerker: ['asbest'].";
+const HVEM_ASBEST = "hvem.asbest er forældet; brug maerker: ['asbest'] (true) eller udenMaerker: ['asbest'] (false).";
 
 export const FAELLES_ALIAS: Record<string, string> = { lager: 'lagerId', projekt: 'projektId', model: 'modelId', lokation: 'lokationId' };
 
@@ -448,7 +458,7 @@ export const KATALOG: ToolSpec[] = [
     beskriv: { ider: '2 eller 3 scenarie-id\'er, kommasepareret, fx «4,7».' } },
   // En POST, der intet skriver: forslaget er deterministisk og læses kun (laesende).
   { navn: 'scenario_foreslaa_placering', titel: 'Foreslå placeringer', op: 'POST /scenarier/{id}/placering', alias: { id: 'scenarieId' }, laesende: true,
-    skjul: ['ting.asbest'],
+    forbyd: { 'ting.asbest': ASBEST },
     beskrivelse: 'Placeringsmotoren: foreslå en plads i scenariet til hver ting (enhed, forbrugsvare, model eller planlagt ting) med score 0–100 og forklaring, eller grundene til, at der ingen er. Skriver intet; kræver lageransvarlig. Hårde krav brydes aldrig (placeringsregler for særhåndteringsmærker og karantæne, modellens hårde krav til evner, zonernes evner, faste pladser, mål, kapacitet, bæreevne, zoneKrav: skal). Bløde mål: pasform, grebshøjde efter frekvens, tunge ting lavt, grupper samlet, ønsket zone, nær maal.arbejdspunkt og færre flytninger. Giv det, interviewet har givet, pr. ting (frekvens, gruppe, zone, vaegtKg, maal, maerker) eller pr. kategori i profiler, og vægte og stilling i maal. Lav 2–3 bud med forskellige maal eller profiler, og læg de linjer, brugeren tager imod, i kladden med scenario_placer (med forslagets version).',
     kort: 'Placeringsmotoren: forslag til, hvor hver ting skal stå i et scenarie, med score.', eksempler: ['hvor skal elværktøjet stå i plan 4', 'foreslå en indretning af skruerne nær arbejdsbordet'],
     beskriv: { omraade: 'Pladserne under denne lokation (standard: scenariets rod).' } },
@@ -542,15 +552,15 @@ export const KATALOG: ToolSpec[] = [
     beskrivelse: 'Opret en reol med hylder i en zone: zone A, reol 12, hylder 4 giver A-12-1 … A-12-4.',
     kort: 'Lageransvarlig: opret en reol med hylder (A-12-1 … A-12-N).', eksempler: ['ny reol 12 i zone A med 5 hylder'] },
   { navn: 'lager_ansvarlig_ret_model', titel: 'Lageransvarlig: ret model', op: 'PUT /ansvarlig/modeller/{id}', alias: { id: 'modelId' },
-    // asbestStandard er forældet (#156): maerker erstatter det.
-    skjul: ['asbestStandard'],
-    beskrivelse: 'Ret en models stamdata, værnemidler og produktside, og de særhåndteringsmærker, en ny enhed af modellen får (maerker: nøglerne fra lager_saermaerker; erstatter listen). Brug maerker, ikke det forældede asbestStandard. Kun de felter, der sendes, ændres. Priser rettes i appen.',
+    // asbestStandard er forældet (#156) og afvises: maerker erstatter det. maerker erstatter hele listen, så værktøjet er destruktivt.
+    forbyd: { asbestStandard: ASBEST_STANDARD }, destruktiv: true,
+    beskrivelse: 'Ret en models stamdata, værnemidler og produktside, og de særhåndteringsmærker, en ny enhed af modellen får (maerker: nøglerne fra lager_saermaerker). maerker ERSTATTER hele listen: læs først modellens nuværende mærker (lager_ansvarlig_modeller med modelId), send den fulde liste, og fjern kun et mærke efter brugerens udtrykkelige ja. Det forældede asbestStandard afvises; brug maerker. Kun de felter, der sendes, ændres. Priser rettes i appen.',
     kort: 'Lageransvarlig: ret en models stamdata, værnemidler og produktside.', eksempler: ['model 12 kræver høreværn og briller', 'sæt eftersynsinterval på model 12 til 12 måneder'] },
   { navn: 'lager_ansvarlig_ret_enhed', titel: 'Lageransvarlig: ret enhed', op: 'PUT /ansvarlig/enheder/{tag}',
     // Købspris går på afregningsarket, og model bestemmer prisen: økonomien rettes i appen.
-    // asbest er forældet (#156): maerker erstatter det.
-    skjul: ['koebspris', 'modelId', 'asbest'], nullbar: ['serienummer', 'koebsdato', 'leverandoer', 'bilag', 'note', 'plads'],
-    beskrivelse: 'Ret en enheds stamdata (serienummer, købsdato, leverandør, bilag, note, hjemmeplads) og særhåndteringsmærker. maerker: særhåndteringsmærkernes nøgler (se lager_saermaerker; erstatter listen; et nyt mærke skal være slået til); brug maerker, ikke det forældede asbest. Står enheden derefter, hvor placeringsreglerne ikke tillader, gemmes rettelsen med en advarsel. null sletter et felt. Model og købspris rettes i appen; enhedens egne felter med lager_ansvarlig_enhed_egenskaber.',
+    // asbest er forældet (#156) og afvises: maerker erstatter det. maerker erstatter hele listen, så værktøjet er destruktivt.
+    skjul: ['koebspris', 'modelId'], forbyd: { asbest: ASBEST }, destruktiv: true, nullbar: ['serienummer', 'koebsdato', 'leverandoer', 'bilag', 'note', 'plads'],
+    beskrivelse: 'Ret en enheds stamdata (serienummer, købsdato, leverandør, bilag, note, hjemmeplads) og særhåndteringsmærker. maerker: særhåndteringsmærkernes nøgler (se lager_saermaerker; et nyt mærke skal være slået til). maerker ERSTATTER hele listen: læs først enhedens nuværende mærker (lager_ansvarlig_enheder med tag), send den fulde liste, og fjern kun et mærke efter brugerens udtrykkelige ja. Det forældede asbest afvises; brug maerker. Står enheden derefter, hvor placeringsreglerne ikke tillader, gemmes rettelsen med en advarsel. null sletter et felt. Model og købspris rettes i appen; enhedens egne felter med lager_ansvarlig_enhed_egenskaber.',
     kort: 'Lageransvarlig: ret en enheds stamdata.', eksempler: ['T-00012 har serienummer 4711', 'T-00012 står på A-12-3', 'T-00012 har været brugt i asbest'] },
   { navn: 'lager_ansvarlig_saet_tilfoej_del', titel: 'Lageransvarlig: læg del i sæt', op: 'POST /ansvarlig/saet/{tag}/dele',
     beskrivelse: 'Gør en enhed (kode) til del af sættet med mærket tag.',
@@ -651,7 +661,7 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'scenario_slet', titel: 'Slet scenarie', op: 'DELETE /ansvarlig/scenarier/{id}', alias: { id: 'scenarieId' },
     beskrivelse: 'Slet et scenarie, der ikke er vedtaget, med dets planlagte lokationer, ting og ændringer. Det rigtige træ røres ikke. Bekræft med brugeren først.',
     kort: 'Slet et scenarie (en kladde).', eksempler: ['slet plan 7'] },
-  { navn: 'scenario_tilfoej_ting', titel: 'Planlæg en ting', op: 'POST /ansvarlig/scenarier/{id}/ting', alias: { id: 'scenarieId' }, skjul: ['asbest'],
+  { navn: 'scenario_tilfoej_ting', titel: 'Planlæg en ting', op: 'POST /ansvarlig/scenarier/{id}/ting', alias: { id: 'scenarieId' }, forbyd: { asbest: ASBEST },
     beskrivelse: 'Planlagt ting under parentId: skabelon (en lokation med hele undertræet, se lager_skabeloner), navn + type med geometri (en lokation i fritekst), eller modelId/navn (en ting, fx en printer på bordet). koebspris, url og vaegtKg er valgfri; en ting i fritekst kan få maerker (særhåndteringsmærker, se lager_saermaerker), som placeringsreglerne ser. Koder gives ved vedtagelsen.',
     kort: 'Tilføj en planlagt reol, et skab eller en ting i et scenarie.', eksempler: ['sæt en 5-hylders reol op ad nordvæggen i plan 4', 'en 3D-printer på bordet'] },
   { navn: 'scenario_flyt', titel: 'Flyt i scenariet', op: 'POST /ansvarlig/scenarier/{id}/flyt', alias: { id: 'scenarieId' }, destruktiv: true,
@@ -660,11 +670,11 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'scenario_fjern_ting', titel: 'Fjern planlagt ting', op: 'DELETE /ansvarlig/scenarier/{id}/ting/{tingId}', alias: { id: 'scenarieId' },
     beskrivelse: 'Fjern en planlagt ting; er den en planlagt lokation, går undertræet med.',
     kort: 'Fjern en planlagt ting fra et scenarie.', eksempler: ['tag printeren ud af plan 4'] },
-  { navn: 'scenario_placer', titel: 'Placér i scenariet', op: 'POST /ansvarlig/scenarier/{id}/placer', alias: { id: 'scenarieId' }, idempotent: true,
-    skjul: ['placeringer.asbest'],
-    beskrivelse: 'Læg placeringer i scenariets kladde, alt eller intet: en enhed eller forbrugsvare får en ny plads i scenariet, en model bliver en planlagt ting på pladsen, en planlagt ting flyttes, og fjern: true tager en placering ud af kladden. Typisk forslagets placer-linjer fra scenario_foreslaa_placering, dem brugeren har taget imod, med forslagets version og kilde: motor. Det rigtige træ røres ikke; vedtagelsen er et menneskes i appen. 409: scenariet er ændret siden version (lav et nyt forslag) eller ikke en kladde; 422: en placeringsregel eller et hårdt krav forbyder pladsen.',
+  { navn: 'scenario_placer', titel: 'Placér i scenariet', op: 'POST /ansvarlig/scenarier/{id}/placer', alias: { id: 'scenarieId' }, idempotent: true, kraev: ['version'],
+    forbyd: { 'placeringer.asbest': ASBEST },
+    beskrivelse: 'Læg placeringer i scenariets kladde, alt eller intet: en enhed eller forbrugsvare får en ny plads i scenariet, en model bliver en planlagt ting på pladsen, en planlagt ting flyttes, og fjern: true tager en placering ud af kladden. Typisk forslagets placer-linjer fra scenario_foreslaa_placering, dem brugeren har taget imod, med kilde: motor. version er påkrævet: forslagets version, eller scenario_hent\'s (eller det seneste svars) ved en placering i hånden. Det rigtige træ røres ikke; vedtagelsen er et menneskes i appen. 409: scenariet er ændret siden version (lav et nyt forslag) eller ikke en kladde; 422: en placeringsregel eller et hårdt krav forbyder pladsen.',
     kort: 'Læg placeringer (fx motorens forslag) i et scenaries kladde.', eksempler: ['placér forslagets linjer i plan 4', 'skruerne skal stå i bin K-17 i planen'],
-    beskriv: { version: 'Scenariets version fra forslaget; et ændret scenarie svarer 409.' } },
+    beskriv: { version: 'Scenariets version: fra forslaget, fra scenario_hent eller fra det seneste svar. Et ændret scenarie svarer 409: lav et nyt forslag.' } },
   { navn: 'scenario_zone_opret', titel: 'Ny zone i scenariet', op: 'POST /ansvarlig/scenarier/{id}/zoner', alias: { id: 'scenarieId' },
     beskrivelse: 'Ny zone i scenariet: en etiket med et formål (fx elektronik, 3D-print, grovværktøj, en særzone) på lokationer, rigtige eller planlagte, med de evner, der følger med (fx strøm, udsugning; se lager_evnetyper). I scenariet gælder zonens evner for reglerne og placeringsmotoren; først en vedtagelse lægger dem på lokationerne. En lokation er i højst én zone pr. scenarie.',
     kort: 'Opret en zone (elektronik, 3D-print, grovværktøj …) i et scenarie.', eksempler: ['gør bordet ved vinduet til elektronikzone i plan 4'] },
@@ -699,15 +709,15 @@ export const KATALOG: ToolSpec[] = [
     kort: 'Lageransvarlig: opret standardalarmer for CO₂, VOC og partikler i et rum.', eksempler: ['giv værkstedet alarmer for luftkvalitet'] },
 
   // ---------------------------------------------------------------- skriv: placeringsregler og procesflows
-  { navn: 'lager_ansvarlig_placeringsregel_opret', titel: 'Lageransvarlig: ny placeringsregel', op: 'POST /ansvarlig/placeringsregler', skjul: ['hvem.asbest'],
+  { navn: 'lager_ansvarlig_placeringsregel_opret', titel: 'Lageransvarlig: ny placeringsregel', op: 'POST /ansvarlig/placeringsregler', forbyd: { 'hvem.asbest': HVEM_ASBEST },
     beskrivelse: 'Ny placeringsregel: skal_staa (det, reglen gælder, skal stå et sted med evnerne) eller kun (stedet er kun til det). hvem: maerker (særhåndteringsmærker som asbest, se lager_saermaerker), udenMaerker og/eller kategorier; steder: evnetypernes nøgler (se lager_evnetyper). Med lagerId lagerets egen; lagerId: null er hele installationens (kræver lageransvarlig på alle lagre).',
     kort: 'Lageransvarlig: opret en placeringsregel (hvad skal stå hvor).', eksempler: ['batterier skal stå et sted med brandsikring'] },
-  { navn: 'lager_ansvarlig_placeringsregel_ret', titel: 'Lageransvarlig: ret placeringsregel', op: 'PATCH /ansvarlig/placeringsregler/{id}', alias: { id: 'placeringsregelId' }, destruktiv: true, skjul: ['hvem.asbest'],
+  { navn: 'lager_ansvarlig_placeringsregel_ret', titel: 'Lageransvarlig: ret placeringsregel', op: 'PATCH /ansvarlig/placeringsregler/{id}', alias: { id: 'placeringsregelId' }, destruktiv: true, forbyd: { 'hvem.asbest': HVEM_ASBEST },
     beskrivelse: 'Ret en placeringsregel eller slå den fra (aktiv: false), også de indbyggede (fx særzonerne for et mærke). Nøglen ligger fast. hvem.maerker er særhåndteringsmærkerne (se lager_saermaerker). SÆRHÅNDTERING (asbest, bly, PCB …): enhver ændring af en regel, der dækker udstyr med et særhåndteringsmærke (aktiv, hvem, slags, steder), er sikkerhedsrelevant og kræver brugerens udtrykkelige ja, før du kalder: forklar, hvad ændringen gør ved værnet. Svarer lageret 409, så spørg brugeren og vent på svaret; send aldrig bekraeft på eget initiativ.',
     kort: 'Lageransvarlig: ret eller slå en placeringsregel fra.', eksempler: ['reglen for batterier gælder kun lager 2'],
     beskriv: { bekraeft: 'Udelad det. Kun true, når brugeren efter et 409 udtrykkeligt har sagt ja til netop denne ændring af en regel for et særhåndteringsmærke (fx asbest).' } },
   { navn: 'lager_ansvarlig_procesflow_opret', titel: 'Lageransvarlig: nyt procesflow', op: 'POST /ansvarlig/procesflows',
-    destruktiv: true, skjul: ['start.hvem.asbest'],
+    destruktiv: true, forbyd: { 'start.hvem.asbest': HVEM_ASBEST },
     beskrivelse: 'Nyt procesflow: status (karantaene eller til_klargoering), hvornår det starter (ved retur, evt. kun skadet eller for særhåndteringsmærker i start.hvem.maerker, fx asbest, eller kategorier, eller manuelt) og trinene med sted, hvem der udfører dem, tjekliste og certificering. Det sidste trin er frigivelsen. Med lagerId lagerets eget; lagerId: null er hele installationens (kræver lageransvarlig på alle lagre). SÆRHÅNDTERING (asbest, bly, PCB …): et flow, der tager udstyr med et særhåndteringsmærke (start.hvem.maerker), bestemmer, hvordan det rengøres og frigives, og et for hele installationen kan gå forud for installationens flow for mærket (fx det indbyggede asbestflow). Forklar brugeren trin, steder, frigivesAf, tjekliste og certificering, og opret det kun efter brugerens udtrykkelige ja. Svarer lageret 409, så spørg brugeren og vent på svaret; send aldrig bekraeft på eget initiativ.',
     kort: 'Lageransvarlig: opret et procesflow (fx rengøring før frigivelse).', eksempler: ['skadet værktøj skal efterses før det kommer på hylden'],
     beskriv: { bekraeft: 'Udelad det. Kun true, når brugeren efter et 409 udtrykkeligt har sagt ja til et flow for et særhåndteringsmærke (fx asbest) for hele installationen.' } },

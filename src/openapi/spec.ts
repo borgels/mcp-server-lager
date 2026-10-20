@@ -21,6 +21,8 @@ export type JsonSkema = {
   additionalProperties?: boolean | JsonSkema;
   $ref?: string;
   description?: string;
+  /** Serverens egen markering (bygger.ts, forbyd): feltet afvises altid med beskeden. */
+  'x-forbudt'?: string;
   minimum?: number;
   maximum?: number;
   minLength?: number;
@@ -165,6 +167,7 @@ function refTilZod(skema: JsonSkema, doc: OpenApiDoc): z.ZodType {
 /** JSON Schema (den delmængde, kortet bruger) → zod. */
 export function tilZod(skema: JsonSkema | undefined, doc: OpenApiDoc = SPEC): z.ZodType {
   if (!skema) return z.unknown();
+  if (skema['x-forbudt']) return z.never({ error: skema['x-forbudt'] }).describe(skema['x-forbudt']);
   if (skema.$ref && !skema.allOf) return refTilZod(skema, doc);
   const s = opslaa(skema, doc);
   let t: z.ZodType;
