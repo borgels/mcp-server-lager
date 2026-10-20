@@ -26,8 +26,13 @@ export type ToolSpec = {
   medId?: { felt: string; op: OpNoegle };
   /** API-navn → værktøjets navn, ud over de faste (lager → lagerId, projekt → projektId, model → modelId). */
   alias?: Record<string, string>;
-  /** API-felter, værktøjet ikke viser; «linjer.fotoId» rammer feltet på hver linje. */
+  /** API-felter, værktøjet ikke viser; «linjer.fotoId» rammer feltet på hver linje, «start.hvem.asbest» et felt længere nede. */
   skjul?: string[];
+  /**
+   * API-felter (stier som i skjul), der står i skemaet, men altid afvises med beskeden:
+   * forældede felter, der ellers ville blive skrællet af i stilhed (fx hvem.asbest → alle).
+   */
+  forbyd?: Record<string, string>;
   /** Faste værdier i kroppen, som værktøjet ikke viser. */
   fast?: Record<string, unknown>;
   /** Indskrænk et felts enum-værdier, fx «afgoerelse.slags»: resten er appens. */
@@ -40,6 +45,8 @@ export type ToolSpec = {
   aabenVerden?: boolean;
   /** idempotentHint, når metoden ikke siger det: PUT, PATCH og DELETE er idempotente, POST ikke. */
   idempotent?: boolean;
+  /** En POST, der kun læser (fx et forslag, der intet skriver): readOnlyHint, og ikke bag skrive-flaget. */
+  laesende?: boolean;
   /** Felter, værktøjet kræver, selv om API'et ikke gør. */
   kraev?: string[];
   /** Feltbeskrivelser (værktøjets navne), der går over kortets. */
@@ -84,6 +91,11 @@ export const FAELLES_BESKRIVELSER: Record<string, string> = {
   til: 'ÅÅÅÅ-MM-DD',
   dato: 'ÅÅÅÅ-MM-DD',
 };
+
+/** Forældede asbestfelter (#156): de afvises, så et kald aldrig skrælles af i stilhed (hvem: {} = alle). */
+const ASBEST = "asbest er forældet; brug maerker: ['asbest'].";
+const ASBEST_STANDARD = "asbestStandard er forældet; brug maerker: ['asbest'].";
+const HVEM_ASBEST = "hvem.asbest er forældet; brug maerker: ['asbest'] (true) eller udenMaerker: ['asbest'] (false).";
 
 export const FAELLES_ALIAS: Record<string, string> = { lager: 'lagerId', projekt: 'projektId', model: 'modelId', lokation: 'lokationId' };
 
@@ -167,7 +179,7 @@ export const UDEN_VAERKTOEJ: Partial<Record<OpNoegle, string>> = { ...UDEN_VAERK
 export const KATALOG: ToolSpec[] = [
   // ---------------------------------------------------------------- læs: brugeren
   { navn: 'lager_me', titel: 'Hvem er jeg', op: 'GET /me',
-    beskrivelse: 'Person, konto, lagre med roller (vaerktoejsbruger/lageransvarlig), installationens moduler (id → til/fra) og tal pr. lager.',
+    beskrivelse: 'Person, konto, lagre med roller (vaerktoejsbruger/lageransvarlig), installationens moduler (id → til/fra) og tal pr. lager. Asbest er ikke et modul: det er ét af særhåndteringsmærkerne (lager_saermaerker).',
     kort: 'Hvem er du, dine lagre, roller, moduler og lagrets tal.', eksempler: ['hvilke lagre har jeg adgang til'] },
   { navn: 'lager_projekter', titel: 'Projekter', op: 'GET /projekter',
     beskrivelse: 'Projekter, du kan afhente til og booke på, med sagsnummer og hvad du har ude.',
@@ -359,7 +371,7 @@ export const KATALOG: ToolSpec[] = [
 
   // ---------------------------------------------------------------- læs: placeringsregler og procesflows
   { navn: 'lager_placeringsregler', titel: 'Placeringsregler', op: 'GET /placeringsregler',
-    beskrivelse: 'Reglerne for, hvad der skal stå hvor (skal_staa), og hvad et sted kun er til (kun), udtrykt som evner på lokationerne: hvem de gælder (asbest, kategorier), stederne og grunden. Installationens og lagrenes egne, også de indbyggede.',
+    beskrivelse: 'Reglerne for, hvad der skal stå hvor (skal_staa), og hvad et sted kun er til (kun), udtrykt som evner på lokationerne: hvem de gælder (særhåndteringsmærker som asbest i hvem.maerker, kategorier), stederne og grunden. Installationens og lagrenes egne, også de indbyggede.',
     kort: 'Placeringsregler: hvad der skal stå hvor, og hvad et sted kun er til.', eksempler: ['hvor skal asbestudstyr stå', 'hvilke regler gælder for proceszonen'] },
   { navn: 'lager_placeringsafvigelser', titel: 'Placeringsafvigelser', op: 'GET /placeringsregler/afvigelser',
     beskrivelse: 'Enheder, der står et sted, reglerne (eller deres forløbs trin) ikke tillader, og enheder, hvis models hårde krav til evner ikke er opfyldt på hjemmepladsen. Kun til at læse; ret med lager_ansvarlig_saet_paa_plads eller i appen.',
@@ -373,6 +385,20 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_procesforloeb_log', titel: 'Et procesforløb med log', op: 'GET /procesforloeb/{id}', alias: { id: 'forloebId' },
     beskrivelse: 'Ét forløb med loggen: hvert trin med hvem, hvornår, noten, de afkrydsede punkter og certificeringen (dokumentationen, fx til asbest).',
     kort: 'Et procesforløbs log: hvem udførte hvert trin, og hvornår.', eksempler: ['hvem rengjorde T-00012', 'dokumentation for frigivelsen'] },
+  { navn: 'lager_saermaerker', titel: 'Særhåndteringsmærker', op: 'GET /saermaerker', alias: { inaktive: 'inklInaktive' },
+    beskrivelse: 'Særhåndteringsmærkerne (asbest, bly, PCB …) i rækkefølge: nøgle, navn, værnet ved retur (klargøring, karantæne eller intet), certificeringen ved frigivelse, og installationens placeringsregler og procesflows for hvert. Nøglerne bruges i maerker på enheder, modeller, scenarieting og i reglernes hvem.maerker.',
+    kort: 'Særhåndteringsmærker (asbest, bly, PCB …) med regler, flows og certificering.', eksempler: ['hvilke særhåndteringsmærker har vi', 'hvad kræver frigivelse af asbestudstyr'] },
+
+  // ---------------------------------------------------------------- læs: enhedsfelter, forbrugsgrupper og e-conomic
+  { navn: 'lager_enhedsfelter', titel: 'Enhedernes feltsæt', op: 'GET /enhedsfelter', alias: { inaktive: 'inklInaktive' },
+    beskrivelse: 'Feltsættene for enhedernes egne felter: installationens og lagrenes egne, med felterne. Felterne sættes med lager_ansvarlig_enhed_egenskaber.',
+    kort: 'Feltsættene: hvilke egne felter enhederne har.', eksempler: ['hvilke felter kan en enhed have'] },
+  { navn: 'lager_forbrugsgrupper', titel: 'Forbrugsgrupper', op: 'GET /forbrugsgrupper', alias: { inaktive: 'inklInaktive' },
+    beskrivelse: 'Forbrugsvarernes grupper i rækkefølge (installationens liste) med nøgle, navn, og om de er aktive og fremhævet.',
+    kort: 'Forbrugsvarernes grupper.', eksempler: ['hvilke varegrupper er der'] },
+  { navn: 'lager_ansvarlig_economic_varer', titel: 'Lageransvarlig: varer i e-conomic', op: 'GET /ansvarlig/economic/varer',
+    beskrivelse: 'Hvilken vare i e-conomic leje, salg og hver forbrugsgruppe faktureres på. produktnr null: forbruget i gruppen kan ikke lægges i e-conomic. Rettes i appen.',
+    kort: 'Lageransvarlig: hvilke e-conomic-varer leje, salg og forbrugsgrupper faktureres på.', eksempler: ['hvilken vare faktureres leje på'] },
 
   // ---------------------------------------------------------------- læs: udlån, kanban, stregkoder og kameraer
   { navn: 'lager_udlaan', titel: 'Mine udlån', op: 'GET /udlaan',
@@ -430,6 +456,15 @@ export const KATALOG: ToolSpec[] = [
     beskrivelse: 'Sammenlign 2–3 scenarier: købspris, ny kapacitet (pladser, hyldeareal, rumfang, netto), flytninger, fjernelser, advarsler og fejl, og hvem der er bedst på hvert.',
     kort: 'Sammenlign 2–3 scenarier på pris, kapacitet og advarsler.', eksempler: ['hvilken plan giver mest hyldeplads', 'sammenlign plan 4 og 7'],
     beskriv: { ider: '2 eller 3 scenarie-id\'er, kommasepareret, fx «4,7».' } },
+  // En POST, der intet skriver: forslaget er deterministisk og læses kun (laesende).
+  { navn: 'scenario_foreslaa_placering', titel: 'Foreslå placeringer', op: 'POST /scenarier/{id}/placering', alias: { id: 'scenarieId' }, laesende: true,
+    forbyd: { 'ting.asbest': ASBEST },
+    beskrivelse: 'Placeringsmotoren: foreslå en plads i scenariet til hver ting (enhed, forbrugsvare, model eller planlagt ting) med score 0–100 og forklaring, eller grundene til, at der ingen er. Skriver intet; kræver lageransvarlig. Hårde krav brydes aldrig (placeringsregler for særhåndteringsmærker og karantæne, modellens hårde krav til evner, zonernes evner, faste pladser, mål, kapacitet, bæreevne, zoneKrav: skal). Bløde mål: pasform, grebshøjde efter frekvens, tunge ting lavt, grupper samlet, ønsket zone, nær maal.arbejdspunkt og færre flytninger. Giv det, interviewet har givet, pr. ting (frekvens, gruppe, zone, vaegtKg, maal, maerker) eller pr. kategori i profiler, og vægte og stilling i maal. Lav 2–3 bud med forskellige maal eller profiler, og læg de linjer, brugeren tager imod, i kladden med scenario_placer (med forslagets version).',
+    kort: 'Placeringsmotoren: forslag til, hvor hver ting skal stå i et scenarie, med score.', eksempler: ['hvor skal elværktøjet stå i plan 4', 'foreslå en indretning af skruerne nær arbejdsbordet'],
+    beskriv: { omraade: 'Pladserne under denne lokation (standard: scenariets rod).' } },
+  { navn: 'scenario_vurder_placering', titel: 'Vurder placeringerne', op: 'GET /scenarier/{id}/placering', alias: { id: 'scenarieId' },
+    beskrivelse: 'Vurder det, scenariet allerede placerer (enheder og forbrugsvarer i kladden og planlagte ting med en plads), med motorens mål: score og forklaring pr. ting og de hårde krav, en placering bryder.',
+    kort: 'Vurder et scenaries placeringer: score og brudte krav pr. ting.', eksempler: ['hvor god er placeringen i plan 4', 'bryder plan 4 nogen krav'] },
 
   // ---------------------------------------------------------------- skriv: brugeren
   { navn: 'lager_tjek_ud', titel: 'Tag værktøj med ud', op: 'POST /tjek-ud', skjul: ['fotoId'],
@@ -517,13 +552,16 @@ export const KATALOG: ToolSpec[] = [
     beskrivelse: 'Opret en reol med hylder i en zone: zone A, reol 12, hylder 4 giver A-12-1 … A-12-4.',
     kort: 'Lageransvarlig: opret en reol med hylder (A-12-1 … A-12-N).', eksempler: ['ny reol 12 i zone A med 5 hylder'] },
   { navn: 'lager_ansvarlig_ret_model', titel: 'Lageransvarlig: ret model', op: 'PUT /ansvarlig/modeller/{id}', alias: { id: 'modelId' },
-    beskrivelse: 'Ret en models stamdata, værnemidler og produktside. Kun de felter, der sendes, ændres. Priser rettes i appen.',
+    // asbestStandard er forældet (#156) og afvises: maerker erstatter det. maerker erstatter hele listen, så værktøjet er destruktivt.
+    forbyd: { asbestStandard: ASBEST_STANDARD }, destruktiv: true,
+    beskrivelse: 'Ret en models stamdata, værnemidler og produktside, og de særhåndteringsmærker, en ny enhed af modellen får (maerker: nøglerne fra lager_saermaerker). maerker ERSTATTER hele listen: læs først modellens nuværende mærker (lager_ansvarlig_modeller med modelId), send den fulde liste, og fjern kun et mærke efter brugerens udtrykkelige ja. Det forældede asbestStandard afvises; brug maerker. Kun de felter, der sendes, ændres. Priser rettes i appen.',
     kort: 'Lageransvarlig: ret en models stamdata, værnemidler og produktside.', eksempler: ['model 12 kræver høreværn og briller', 'sæt eftersynsinterval på model 12 til 12 måneder'] },
   { navn: 'lager_ansvarlig_ret_enhed', titel: 'Lageransvarlig: ret enhed', op: 'PUT /ansvarlig/enheder/{tag}',
     // Købspris går på afregningsarket, og model bestemmer prisen: økonomien rettes i appen.
-    skjul: ['koebspris', 'modelId'], nullbar: ['serienummer', 'koebsdato', 'leverandoer', 'bilag', 'note', 'plads'],
-    beskrivelse: 'Ret en enheds stamdata (serienummer, købsdato, leverandør, bilag, note, hjemmeplads, asbest). null sletter et felt. Model og købspris rettes i appen.',
-    kort: 'Lageransvarlig: ret en enheds stamdata.', eksempler: ['T-00012 har serienummer 4711', 'T-00012 står på A-12-3'] },
+    // asbest er forældet (#156) og afvises: maerker erstatter det. maerker erstatter hele listen, så værktøjet er destruktivt.
+    skjul: ['koebspris', 'modelId'], forbyd: { asbest: ASBEST }, destruktiv: true, nullbar: ['serienummer', 'koebsdato', 'leverandoer', 'bilag', 'note', 'plads'],
+    beskrivelse: 'Ret en enheds stamdata (serienummer, købsdato, leverandør, bilag, note, hjemmeplads) og særhåndteringsmærker. maerker: særhåndteringsmærkernes nøgler (se lager_saermaerker; et nyt mærke skal være slået til). maerker ERSTATTER hele listen: læs først enhedens nuværende mærker (lager_ansvarlig_enheder med tag), send den fulde liste, og fjern kun et mærke efter brugerens udtrykkelige ja. Det forældede asbest afvises; brug maerker. Står enheden derefter, hvor placeringsreglerne ikke tillader, gemmes rettelsen med en advarsel. null sletter et felt. Model og købspris rettes i appen; enhedens egne felter med lager_ansvarlig_enhed_egenskaber.',
+    kort: 'Lageransvarlig: ret en enheds stamdata.', eksempler: ['T-00012 har serienummer 4711', 'T-00012 står på A-12-3', 'T-00012 har været brugt i asbest'] },
   { navn: 'lager_ansvarlig_saet_tilfoej_del', titel: 'Lageransvarlig: læg del i sæt', op: 'POST /ansvarlig/saet/{tag}/dele',
     beskrivelse: 'Gør en enhed (kode) til del af sættet med mærket tag.',
     kort: 'Lageransvarlig: læg en enhed i et sæt.', eksempler: ['læg T-00040 i kassen T-00031'],
@@ -623,8 +661,8 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'scenario_slet', titel: 'Slet scenarie', op: 'DELETE /ansvarlig/scenarier/{id}', alias: { id: 'scenarieId' },
     beskrivelse: 'Slet et scenarie, der ikke er vedtaget, med dets planlagte lokationer, ting og ændringer. Det rigtige træ røres ikke. Bekræft med brugeren først.',
     kort: 'Slet et scenarie (en kladde).', eksempler: ['slet plan 7'] },
-  { navn: 'scenario_tilfoej_ting', titel: 'Planlæg en ting', op: 'POST /ansvarlig/scenarier/{id}/ting', alias: { id: 'scenarieId' },
-    beskrivelse: 'Planlagt ting under parentId: skabelon (en lokation med hele undertræet, se lager_skabeloner), navn + type med geometri (en lokation i fritekst), eller modelId/navn (en ting, fx en printer på bordet). koebspris, url og vaegtKg er valgfri; koder gives ved vedtagelsen.',
+  { navn: 'scenario_tilfoej_ting', titel: 'Planlæg en ting', op: 'POST /ansvarlig/scenarier/{id}/ting', alias: { id: 'scenarieId' }, forbyd: { asbest: ASBEST },
+    beskrivelse: 'Planlagt ting under parentId: skabelon (en lokation med hele undertræet, se lager_skabeloner), navn + type med geometri (en lokation i fritekst), eller modelId/navn (en ting, fx en printer på bordet). koebspris, url og vaegtKg er valgfri; en ting i fritekst kan få maerker (særhåndteringsmærker, se lager_saermaerker), som placeringsreglerne ser. Koder gives ved vedtagelsen.',
     kort: 'Tilføj en planlagt reol, et skab eller en ting i et scenarie.', eksempler: ['sæt en 5-hylders reol op ad nordvæggen i plan 4', 'en 3D-printer på bordet'] },
   { navn: 'scenario_flyt', titel: 'Flyt i scenariet', op: 'POST /ansvarlig/scenarier/{id}/flyt', alias: { id: 'scenarieId' }, destruktiv: true,
     beskrivelse: 'Flytninger, alt eller intet: en rigtig lokation (lokationId) får ny forælder eller x/y/z og rotation kun i scenariet, fjern: true nedlægger den ved vedtagelsen, nulstil: true glemmer ændringen. En planlagt (tingId) flyttes, eller slettes med fjern. Svaret er scenariet bagefter.',
@@ -632,6 +670,22 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'scenario_fjern_ting', titel: 'Fjern planlagt ting', op: 'DELETE /ansvarlig/scenarier/{id}/ting/{tingId}', alias: { id: 'scenarieId' },
     beskrivelse: 'Fjern en planlagt ting; er den en planlagt lokation, går undertræet med.',
     kort: 'Fjern en planlagt ting fra et scenarie.', eksempler: ['tag printeren ud af plan 4'] },
+  { navn: 'scenario_placer', titel: 'Placér i scenariet', op: 'POST /ansvarlig/scenarier/{id}/placer', alias: { id: 'scenarieId' }, idempotent: true, kraev: ['version'],
+    forbyd: { 'placeringer.asbest': ASBEST },
+    beskrivelse: 'Læg placeringer i scenariets kladde, alt eller intet: en enhed eller forbrugsvare får en ny plads i scenariet, en model bliver en planlagt ting på pladsen, en planlagt ting flyttes, og fjern: true tager en placering ud af kladden. Typisk forslagets placer-linjer fra scenario_foreslaa_placering, dem brugeren har taget imod, med kilde: motor. version er påkrævet: forslagets version, eller scenario_hent\'s (eller det seneste svars) ved en placering i hånden. Det rigtige træ røres ikke; vedtagelsen er et menneskes i appen. 409: scenariet er ændret siden version (lav et nyt forslag) eller ikke en kladde; 422: en placeringsregel eller et hårdt krav forbyder pladsen.',
+    kort: 'Læg placeringer (fx motorens forslag) i et scenaries kladde.', eksempler: ['placér forslagets linjer i plan 4', 'skruerne skal stå i bin K-17 i planen'],
+    beskriv: { version: 'Scenariets version: fra forslaget, fra scenario_hent eller fra det seneste svar. Et ændret scenarie svarer 409: lav et nyt forslag.' } },
+  { navn: 'scenario_zone_opret', titel: 'Ny zone i scenariet', op: 'POST /ansvarlig/scenarier/{id}/zoner', alias: { id: 'scenarieId' },
+    beskrivelse: 'Ny zone i scenariet: en etiket med et formål (fx elektronik, 3D-print, grovværktøj, en særzone) på lokationer, rigtige eller planlagte, med de evner, der følger med (fx strøm, udsugning; se lager_evnetyper). I scenariet gælder zonens evner for reglerne og placeringsmotoren; først en vedtagelse lægger dem på lokationerne. En lokation er i højst én zone pr. scenarie.',
+    kort: 'Opret en zone (elektronik, 3D-print, grovværktøj …) i et scenarie.', eksempler: ['gør bordet ved vinduet til elektronikzone i plan 4'] },
+  { navn: 'scenario_zone_ret', titel: 'Ret en zone i scenariet', op: 'PATCH /ansvarlig/scenarier/{id}/zoner/{zoneId}', alias: { id: 'scenarieId' },
+    beskrivelse: 'Ret en zones navn, formål, evner eller lokationer: lokationer erstatter listen, tilfoej og fjern retter den. Nøglen ligger fast.',
+    kort: 'Ret en zone i et scenarie.', eksempler: ['reol 3 hører også til grovværktøjszonen'],
+    beskriv: { zoneId: 'Zonens id (se scenario_hent).' } },
+  { navn: 'scenario_zone_slet', titel: 'Slet en zone i scenariet', op: 'DELETE /ansvarlig/scenarier/{id}/zoner/{zoneId}', alias: { id: 'scenarieId' },
+    beskrivelse: 'Slet en zone i scenariet; det rigtige træ røres ikke. Bekræft med brugeren først.',
+    kort: 'Slet en zone i et scenarie.', eksempler: ['fjern 3D-printzonen fra plan 4'],
+    beskriv: { zoneId: 'Zonens id (se scenario_hent).' } },
 
   // ---------------------------------------------------------------- skriv: klima, alarmer og styring
   { navn: 'lager_ansvarlig_iot_styr', titel: 'Lageransvarlig: styr lys og ventilation', op: 'POST /iot/enheder/{id}/styr', alias: { id: 'enhedId' }, idempotent: true, aabenVerden: true,
@@ -655,33 +709,58 @@ export const KATALOG: ToolSpec[] = [
     kort: 'Lageransvarlig: opret standardalarmer for CO₂, VOC og partikler i et rum.', eksempler: ['giv værkstedet alarmer for luftkvalitet'] },
 
   // ---------------------------------------------------------------- skriv: placeringsregler og procesflows
-  { navn: 'lager_ansvarlig_placeringsregel_opret', titel: 'Lageransvarlig: ny placeringsregel', op: 'POST /ansvarlig/placeringsregler',
-    beskrivelse: 'Ny placeringsregel: skal_staa (det, reglen gælder, skal stå et sted med evnerne) eller kun (stedet er kun til det). hvem: asbest og/eller kategorier; steder: evnetypernes nøgler (se lager_evnetyper). Med lagerId lagerets egen; lagerId: null er hele installationens (kræver lageransvarlig på alle lagre).',
+  { navn: 'lager_ansvarlig_placeringsregel_opret', titel: 'Lageransvarlig: ny placeringsregel', op: 'POST /ansvarlig/placeringsregler', forbyd: { 'hvem.asbest': HVEM_ASBEST },
+    beskrivelse: 'Ny placeringsregel: skal_staa (det, reglen gælder, skal stå et sted med evnerne) eller kun (stedet er kun til det). hvem: maerker (særhåndteringsmærker som asbest, se lager_saermaerker), udenMaerker og/eller kategorier; steder: evnetypernes nøgler (se lager_evnetyper). Med lagerId lagerets egen; lagerId: null er hele installationens (kræver lageransvarlig på alle lagre).',
     kort: 'Lageransvarlig: opret en placeringsregel (hvad skal stå hvor).', eksempler: ['batterier skal stå et sted med brandsikring'] },
-  { navn: 'lager_ansvarlig_placeringsregel_ret', titel: 'Lageransvarlig: ret placeringsregel', op: 'PATCH /ansvarlig/placeringsregler/{id}', alias: { id: 'placeringsregelId' }, destruktiv: true,
-    beskrivelse: 'Ret en placeringsregel eller slå den fra (aktiv: false), også de indbyggede. Nøglen ligger fast. ASBEST: enhver ændring af en regel, der dækker asbestudstyr (aktiv, hvem, slags, steder), er sikkerhedsrelevant og kræver brugerens udtrykkelige ja, før du kalder: forklar, hvad ændringen gør ved værnet. Svarer lageret 409, så spørg brugeren og vent på svaret; send aldrig bekraeft på eget initiativ.',
+  { navn: 'lager_ansvarlig_placeringsregel_ret', titel: 'Lageransvarlig: ret placeringsregel', op: 'PATCH /ansvarlig/placeringsregler/{id}', alias: { id: 'placeringsregelId' }, destruktiv: true, forbyd: { 'hvem.asbest': HVEM_ASBEST },
+    beskrivelse: 'Ret en placeringsregel eller slå den fra (aktiv: false), også de indbyggede (fx særzonerne for et mærke). Nøglen ligger fast. hvem.maerker er særhåndteringsmærkerne (se lager_saermaerker). SÆRHÅNDTERING (asbest, bly, PCB …): enhver ændring af en regel, der dækker udstyr med et særhåndteringsmærke (aktiv, hvem, slags, steder), er sikkerhedsrelevant og kræver brugerens udtrykkelige ja, før du kalder: forklar, hvad ændringen gør ved værnet. Svarer lageret 409, så spørg brugeren og vent på svaret; send aldrig bekraeft på eget initiativ.',
     kort: 'Lageransvarlig: ret eller slå en placeringsregel fra.', eksempler: ['reglen for batterier gælder kun lager 2'],
-    beskriv: { bekraeft: 'Udelad det. Kun true, når brugeren efter et 409 udtrykkeligt har sagt ja til netop denne ændring af en asbestregel.' } },
+    beskriv: { bekraeft: 'Udelad det. Kun true, når brugeren efter et 409 udtrykkeligt har sagt ja til netop denne ændring af en regel for et særhåndteringsmærke (fx asbest).' } },
   { navn: 'lager_ansvarlig_procesflow_opret', titel: 'Lageransvarlig: nyt procesflow', op: 'POST /ansvarlig/procesflows',
-    destruktiv: true,
-    beskrivelse: 'Nyt procesflow: status (karantaene eller til_klargoering), hvornår det starter (ved retur, evt. kun skadet eller for asbest/kategorier, eller manuelt) og trinene med sted, hvem der udfører dem, tjekliste og certificering. Det sidste trin er frigivelsen. Med lagerId lagerets eget; lagerId: null er hele installationens (kræver lageransvarlig på alle lagre). ASBEST: et flow, der tager asbestudstyr (start.hvem.asbest), bestemmer, hvordan det rengøres og frigives, og et for hele installationen kan gå forud for det indbyggede asbestflow. Forklar brugeren trin, steder, frigivesAf, tjekliste og certificering, og opret det kun efter brugerens udtrykkelige ja. Svarer lageret 409, så spørg brugeren og vent på svaret; send aldrig bekraeft på eget initiativ.',
+    destruktiv: true, forbyd: { 'start.hvem.asbest': HVEM_ASBEST },
+    beskrivelse: 'Nyt procesflow: status (karantaene eller til_klargoering), hvornår det starter (ved retur, evt. kun skadet eller for særhåndteringsmærker i start.hvem.maerker, fx asbest, eller kategorier, eller manuelt) og trinene med sted, hvem der udfører dem, tjekliste og certificering. Det sidste trin er frigivelsen. Med lagerId lagerets eget; lagerId: null er hele installationens (kræver lageransvarlig på alle lagre). SÆRHÅNDTERING (asbest, bly, PCB …): et flow, der tager udstyr med et særhåndteringsmærke (start.hvem.maerker), bestemmer, hvordan det rengøres og frigives, og et for hele installationen kan gå forud for installationens flow for mærket (fx det indbyggede asbestflow). Forklar brugeren trin, steder, frigivesAf, tjekliste og certificering, og opret det kun efter brugerens udtrykkelige ja. Svarer lageret 409, så spørg brugeren og vent på svaret; send aldrig bekraeft på eget initiativ.',
     kort: 'Lageransvarlig: opret et procesflow (fx rengøring før frigivelse).', eksempler: ['skadet værktøj skal efterses før det kommer på hylden'],
-    beskriv: { bekraeft: 'Udelad det. Kun true, når brugeren efter et 409 udtrykkeligt har sagt ja til et asbestflow for hele installationen.' } },
+    beskriv: { bekraeft: 'Udelad det. Kun true, når brugeren efter et 409 udtrykkeligt har sagt ja til et flow for et særhåndteringsmærke (fx asbest) for hele installationen.' } },
   { navn: 'lager_ansvarlig_procesflow_ret', titel: 'Lageransvarlig: ret procesflow', op: 'PATCH /ansvarlig/procesflows/{id}', alias: { id: 'procesflowId' }, destruktiv: true,
-    beskrivelse: 'Ret et procesflow eller slå det fra (aktiv: false). Et trin, et aktivt forløb står på, kan ikke fjernes, og status kan ikke ændres med aktive forløb (409). ASBEST: enhver ændring af et flow, der dækker asbestudstyr (aktiv, start, trin, steder, frigivesAf, tjekliste, certificering), er sikkerhedsrelevant og kræver brugerens udtrykkelige ja, før du kalder: forklar, hvad ændringen gør ved værnet. Svarer lageret 409 om asbest, så spørg brugeren og vent på svaret; send aldrig bekraeft på eget initiativ.',
+    beskrivelse: 'Ret et procesflow eller slå det fra (aktiv: false). I start.hvem bruges maerker og udenMaerker (særhåndteringsmærkernes nøgler, se lager_saermaerker), ikke det forældede asbest. Et trin, et aktivt forløb står på, kan ikke fjernes, og status kan ikke ændres med aktive forløb (409). SÆRHÅNDTERING (asbest, bly, PCB …): enhver ændring af et flow, der dækker udstyr med et særhåndteringsmærke (aktiv, start, trin, steder, frigivesAf, tjekliste, certificering), er sikkerhedsrelevant og kræver brugerens udtrykkelige ja, før du kalder: forklar, hvad ændringen gør ved værnet. Svarer lageret 409 om et mærke, så spørg brugeren og vent på svaret; send aldrig bekraeft på eget initiativ.',
     kort: 'Lageransvarlig: ret eller slå et procesflow fra.', eksempler: ['rengøringen skal have et punkt mere på tjeklisten'],
-    beskriv: { bekraeft: 'Udelad det. Kun true, når brugeren efter et 409 udtrykkeligt har sagt ja til netop denne ændring af et asbestflow.' } },
+    beskriv: { bekraeft: 'Udelad det. Kun true, når brugeren efter et 409 udtrykkeligt har sagt ja til netop denne ændring af et flow for et særhåndteringsmærke (fx asbest).' } },
   { navn: 'lager_ansvarlig_procesforloeb_start', titel: 'Lageransvarlig: start procesforløb', op: 'POST /ansvarlig/procesforloeb',
     beskrivelse: 'Start et flow i hånden på en enhed: enheden spærres med flowets status (karantæne eller klargøring), og forløbet står på første trin. Bekræft med brugeren først.',
     kort: 'Lageransvarlig: sæt en enhed i et procesflow (spærrer den).', eksempler: ['T-00012 skal rengøres før den lånes ud igen'],
     beskriv: { flow: 'Flowets id eller nøgle (se lager_procesflows).' } },
   { navn: 'lager_procesforloeb_udfoer', titel: 'Udfør et trin i procesforløbet', op: 'POST /procesforloeb/{id}/udfoer', alias: { id: 'forloebId' }, destruktiv: true,
-    beskrivelse: 'Udfør trinnet, forløbet står på (trin = nøglen fra lager_procesforloeb). Tjeklistens påkrævede punkter (tjekket) og trinnets certificering skal med; et trin for den lageransvarlige kræver hende. Det sidste trin er frigivelsen: enheden kan bruges igen. Sikkerhedsrelevant (fx asbest): bekræft altid med brugeren før kaldet, at trinnet er udført, hvert punkt, du krydser af, og certificeringen. Kryds aldrig noget af og bekræft aldrig en certificering, brugeren ikke selv har bekræftet. Står i loggen med brugerens navn.',
+    beskrivelse: 'Udfør trinnet, forløbet står på (trin = nøglen fra lager_procesforloeb). Tjeklistens påkrævede punkter (tjekket) og trinnets certificering skal med; et trin for den lageransvarlige kræver hende. Det sidste trin er frigivelsen: enheden kan bruges igen, og så kræver hvert af enhedens særhåndteringsmærker (fx asbest, se lager_saermaerker) sin certificering (certificeret). Sikkerhedsrelevant: bekræft altid med brugeren før kaldet, at trinnet er udført, hvert punkt, du krydser af, og certificeringen. Bed brugeren selv bekræfte, at certificeringen (trinnets og mærkernes) er i orden, og sæt aldrig certificeret på eget initiativ. Kryds aldrig noget af og bekræft aldrig en certificering, brugeren ikke selv har bekræftet. Står i loggen med brugerens navn.',
     kort: 'Udfør et trin i et procesforløb (rengøring, eftersyn, frigivelse).', eksempler: ['T-00012 er rengjort', 'frigiv T-00012 efter rengøringen'],
     beskriv: {
       tjekket: 'Nøglerne på de tjeklistepunkter, brugeren har bekræftet er udført.',
-      certificeret: 'true kun når brugeren selv har bekræftet trinnets certificering.',
+      certificeret: 'true kun når brugeren selv har bekræftet trinnets certificering og, ved frigivelsen, særhåndteringsmærkernes. Spørg brugeren; sæt det aldrig af dig selv.',
     } },
+  // Særhåndteringsmærkerne er sikkerhedsværn: begge skrivninger er destruktive og kræver brugerens ja.
+  { navn: 'lager_ansvarlig_saermaerke_opret', titel: 'Lageransvarlig: nyt særhåndteringsmærke', op: 'POST /ansvarlig/saermaerker', destruktiv: true,
+    beskrivelse: 'Nyt særhåndteringsmærke (fx bly, PCB) for hele installationen (kræver lageransvarlig på alle lagre): værnet ved retur (retur: til_klargoering som standard, karantaene eller ingen), certificeringen, den, der frigiver, skal bekræfte, og zoneregler: true lægger to placeringsregler ind (udstyret står i en særzone for mærket eller i service, karantæne eller modtagelsen, og særzonen er kun til det). Sikkerhedsrelevant: forklar brugeren værnet, certificeringen og reglerne, og opret det kun efter brugerens udtrykkelige ja.',
+    kort: 'Lageransvarlig: opret et særhåndteringsmærke (bly, PCB …) med værn og certificering.', eksempler: ['vi skal kunne mærke udstyr, der har været brugt i bly'] },
+  { navn: 'lager_ansvarlig_saermaerke_ret', titel: 'Lageransvarlig: ret særhåndteringsmærke', op: 'PATCH /ansvarlig/saermaerker/{noegle}', destruktiv: true,
+    beskrivelse: 'Ret et særhåndteringsmærke (også det indbyggede asbest): navn (null = standardnavnet igen), beskrivelse, retur, certificering, aktiv, sortering. Nøglen ligger fast. At slå det fra, give det et andet værn ved retur eller fjerne eller ændre certificeringen løsner værnet og er sikkerhedsrelevant: bekræft altid med brugeren, før du kalder, og forklar, hvad ændringen gør ved værnet. Er mærket i brug, svarer lageret 409 med antallene: vis dem, spørg brugeren og vent på svaret; send aldrig bekraeft på eget initiativ.',
+    kort: 'Lageransvarlig: ret eller slå et særhåndteringsmærke fra.', eksempler: ['asbestmærket skal hedde «Asbest (sanering)»', 'frigivelse af blyudstyr kræver certifikat B'],
+    beskriv: { noegle: 'Mærkets nøgle (se lager_saermaerker).', bekraeft: 'Udelad det. Kun true, når brugeren efter et 409 udtrykkeligt har sagt ja til netop denne løsnelse af værnet for et mærke i brug.' } },
+  { navn: 'lager_ansvarlig_enhedsfelter_opret', titel: 'Lageransvarlig: nyt feltsæt', op: 'POST /ansvarlig/enhedsfelter',
+    beskrivelse: 'Nyt feltsæt for enhedernes egne felter (nøgle, navn, felter). Med lagerId lagerets enheder; lagerId: null alle enheder på installationen (kræver lageransvarlig på alle lagre).',
+    kort: 'Lageransvarlig: opret et feltsæt for enhedernes egne felter.', eksempler: ['enhederne skal have et felt for kalibreringsdato'] },
+  { navn: 'lager_ansvarlig_enhedsfelter_ret', titel: 'Lageransvarlig: ret feltsæt', op: 'PATCH /ansvarlig/enhedsfelter/{id}', alias: { id: 'feltsaetId' },
+    beskrivelse: 'Ret et feltsæt (også det indbyggede): navn, beskrivelse, felter, eller slå det fra (aktiv: false; værdierne på enhederne bliver stående). Nøglen ligger fast.',
+    kort: 'Lageransvarlig: ret eller slå et feltsæt fra.', eksempler: ['kalibreringsfeltet er ikke påkrævet'],
+    beskriv: { feltsaetId: 'Feltsættets id (se lager_enhedsfelter).' } },
+  { navn: 'lager_ansvarlig_enhed_egenskaber', titel: 'Lageransvarlig: enhedens egne felter', op: 'PUT /ansvarlig/enheder/{tag}/egenskaber',
+    beskrivelse: 'Sæt enhedens egne felter efter feltsættene (se lager_enhedsfelter). Flettes ind i de gemte; null fjerner et felt.',
+    kort: 'Lageransvarlig: sæt en enheds egne felter (feltsættene).', eksempler: ['T-00012 er kalibreret 2026-09-01'] },
+  { navn: 'lager_ansvarlig_forbrugsgruppe_opret', titel: 'Lageransvarlig: ny forbrugsgruppe', op: 'POST /ansvarlig/forbrugsgrupper',
+    beskrivelse: 'Ny forbrugsgruppe for hele installationen (kræver lageransvarlig på alle lagre): nøgle, navn, aktiv, fremhaevet, sortering.',
+    kort: 'Lageransvarlig: opret en forbrugsgruppe.', eksempler: ['opret en gruppe for elartikler'] },
+  { navn: 'lager_ansvarlig_forbrugsgruppe_ret', titel: 'Lageransvarlig: ret forbrugsgruppe', op: 'PATCH /ansvarlig/forbrugsgrupper/{noegle}',
+    beskrivelse: 'Ret en forbrugsgruppe (også en indbygget): navn (null = standardnavnet igen), aktiv, fremhaevet, sortering. Nøglen ligger fast; slås den fra, bliver varerne i den.',
+    kort: 'Lageransvarlig: ret eller slå en forbrugsgruppe fra.', eksempler: ['værnemidler skal stå først'],
+    beskriv: { noegle: 'Gruppens nøgle (se lager_forbrugsgrupper).' } },
 
   // ---------------------------------------------------------------- skriv: udlån, kanban og stregkoder
   // aabenVerden: paamind sender mail til låneren, en tredjepart uden konto.

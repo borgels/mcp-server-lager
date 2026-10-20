@@ -28,23 +28,42 @@ export type Bygget = {
   vaelg: (input: Input) => OpNoegle;
 };
 
-/** Fjern «a.b»-felter: b på a's objekt eller på a's linjer. */
-function utenIndlejrede(s: JsonSkema, skjul: string[], doc: OpenApiDoc): JsonSkema {
-  const dybe = skjul.filter((x) => x.includes('.'));
-  if (!dybe.length || !s.properties) return s;
-  const props = { ...s.properties };
-  for (const sti of dybe) {
-    const [a, b] = sti.split('.') as [string, string];
-    const p = props[a];
-    if (!p) continue;
-    const fjern = (o: JsonSkema): JsonSkema => {
-      const r = o.$ref ? doc.components?.schemas?.[o.$ref.replace('#/components/schemas/', '')] ?? o : o;
-      const { [b]: _vaek, ...rest } = r.properties ?? {};
-      return { ...r, properties: rest, required: (r.required ?? []).filter((x) => x !== b) };
-    };
-    props[a] = p.type === 'array' && p.items ? { ...p, items: fjern(p.items) } : fjern(p);
+/**
+ * Ret felter efter en sti: «a», «a.b» eller «a.b.c» (gennem $ref og linjer). skjul fjerner
+ * feltet; forbyd lader det stå, men som et felt, der altid afvises med beskeden (fx et
+ * forældet asbest: at skrælle det af i stilhed kunne gøre en regel bredere). Stier,
+ * der rammer et felt, lægges i `fundne`, så byg() kan afvise en sti, der intet rammer.
+ */
+function medRettedeFelter(s: JsonSkema, skjul: string[], forbyd: Record<string, string>, doc: OpenApiDoc, fundne: Set<string>): JsonSkema {
+  const slaa = (o: JsonSkema): JsonSkema => (o.$ref ? doc.components?.schemas?.[o.$ref.replace('#/components/schemas/', '')] ?? o : o);
+  const ret = (o: JsonSkema, led: string[], sti: string, blad: (r: JsonSkema, felt: string) => JsonSkema): JsonSkema => {
+    const r = slaa(o);
+    const [a, ...rest] = led as [string, ...string[]];
+    const p = r.properties?.[a];
+    if (!p) return r;
+    if (!rest.length) {
+      fundne.add(sti);
+      return blad(r, a);
+    }
+    const ny = p.type === 'array' && p.items ? { ...p, items: ret(p.items, rest, sti, blad) } : ret(p, rest, sti, blad);
+    return { ...r, properties: { ...r.properties, [a]: ny } };
+  };
+  let ud = s;
+  for (const sti of skjul) {
+    if (!sti.includes('.')) continue;
+    ud = ret(ud, sti.split('.'), sti, (r, felt) => {
+      const { [felt]: _vaek, ...props } = r.properties ?? {};
+      return { ...r, properties: props, required: (r.required ?? []).filter((x) => x !== felt) };
+    });
   }
-  return { ...s, properties: props };
+  for (const [sti, besked] of Object.entries(forbyd)) {
+    ud = ret(ud, sti.split('.'), sti, (r, felt) => ({
+      ...r,
+      properties: { ...r.properties, [felt]: { 'x-forbudt': besked, description: besked } },
+      required: (r.required ?? []).filter((x) => x !== felt),
+    }));
+  }
+  return ud;
 }
 
 /** Indskrænk enum-værdierne på «a.b» (eller «a») til de tilladte. */
@@ -68,7 +87,7 @@ function begraenset(s: JsonSkema, begraens: Record<string, string[]>, doc: OpenA
   return { ...s, properties: props };
 }
 
-function planFor(spec: ToolSpec, op: OpNoegle, doc: OpenApiDoc): { plan: Plan; felter: Record<string, { skema: z.ZodType; paakraevet: boolean; beskrivelse?: string }> } {
+function planFor(spec: ToolSpec, op: OpNoegle, doc: OpenApiDoc, fundne: Set<string> = new Set()): { plan: Plan; felter: Record<string, { skema: z.ZodType; paakraevet: boolean; beskrivelse?: string }> } {
   const o = kraevOperation(op, doc);
   // Lagerets egen stillingtagen (x-mcp) går forud for kataloget.
   const grund = udenVaerktoejGrund(op, doc);
@@ -79,7 +98,7 @@ function planFor(spec: ToolSpec, op: OpNoegle, doc: OpenApiDoc): { plan: Plan; f
   const plan: Plan = { op, felter: {} };
   for (const p of o.parameters ?? []) {
     if (p.in !== 'path' && p.in !== 'query') continue;
-    if (skjul.has(p.name)) continue;
+    if (skjul.has(p.name)) { fundne.add(p.name); continue; }
     const navn = spec.alias?.[p.name] ?? (p.in === 'query' ? FAELLES_ALIAS[p.name] : undefined) ?? p.name;
     const flag = p.in === 'query' && erFlag(p.schema);
     plan.felter[navn] = { hvor: p.in, api: p.name, flag };
@@ -87,10 +106,11 @@ function planFor(spec: ToolSpec, op: OpNoegle, doc: OpenApiDoc): { plan: Plan; f
   }
   const krop = kropsskema(o, doc);
   if (krop?.properties) {
-    const s = begraenset(utenIndlejrede(krop, spec.skjul ?? [], doc), spec.begraens ?? {}, doc);
+    const s = begraenset(medRettedeFelter(krop, spec.skjul ?? [], spec.forbyd ?? {}, doc, fundne), spec.begraens ?? {}, doc);
     const req = new Set(s.required ?? []);
     for (const [api, ps] of Object.entries(s.properties ?? {})) {
-      if (skjul.has(api) || api in fast) continue;
+      if (skjul.has(api)) { fundne.add(api); continue; }
+      if (api in fast) continue;
       const navn = spec.alias?.[api] ?? api;
       plan.felter[navn] = { hvor: 'body', api };
       const skema = tilZod(ps, doc);
@@ -102,11 +122,15 @@ function planFor(spec: ToolSpec, op: OpNoegle, doc: OpenApiDoc): { plan: Plan; f
 }
 
 export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
-  const hoved = planFor(spec, spec.op, doc);
-  const alt = spec.medId ? planFor(spec, spec.medId.op, doc) : undefined;
+  const fundne = new Set<string>();
+  const hoved = planFor(spec, spec.op, doc, fundne);
+  const alt = spec.medId ? planFor(spec, spec.medId.op, doc, fundne) : undefined;
   const planer = new Map<OpNoegle, Plan>([[spec.op, hoved.plan]]);
   if (alt && spec.medId) planer.set(spec.medId.op, alt.plan);
-  for (const op of spec.ops ?? []) if (!planer.has(op)) planer.set(op, planFor(spec, op, doc).plan);
+  for (const op of spec.ops ?? []) if (!planer.has(op)) planer.set(op, planFor(spec, op, doc, fundne).plan);
+  // Som begraens: en sti, der ikke rammer noget felt i nogen af operationerne, er en fejl i kataloget.
+  const forgaeves = [...(spec.skjul ?? []), ...Object.keys(spec.forbyd ?? {})].filter((sti) => !fundne.has(sti));
+  if (forgaeves.length) throw new Error(`${spec.navn}: skjul/forbyd ${forgaeves.join(', ')} findes ikke`);
 
   // Med to operationer vælger feltet operationen, så intet er påkrævet.
   const samlet = { ...(alt?.felter ?? {}), ...hoved.felter };
@@ -151,9 +175,9 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
 
   return {
     shape,
-    skriv: metode !== 'get',
+    skriv: metode !== 'get' && !spec.laesende,
     sletter: metode === 'delete' || !!spec.destruktiv,
-    idempotent: metode === 'get' || (spec.idempotent ?? metode !== 'post'),
+    idempotent: metode === 'get' || !!spec.laesende || (spec.idempotent ?? metode !== 'post'),
     aabenVerden: !!spec.aabenVerden,
     moduler: [...new Set(ops.flatMap((op) => modulerFor(op, doc)))].sort(),
     ops,

@@ -130,13 +130,15 @@ describe('OpenAPI-øjebliksbilledet', () => {
     }
   });
 
-  it('læsende værktøjer bruger kun GET, skrivende aldrig', () => {
+  it('læsende værktøjer bruger kun GET (eller en POST, der kun læser), skrivende aldrig', () => {
     for (const s of KATALOG) {
       const b = byg(s);
       const metoder = new Set(b.ops.map((op) => splitOp(op).metode));
       if (b.skriv) expect(metoder.has('get'), s.navn).toBe(false);
-      else expect([...metoder], s.navn).toEqual(['get']);
+      else expect([...metoder], s.navn).toEqual([s.laesende ? 'post' : 'get']);
     }
+    // Kun placeringsmotorens forslag er en POST, der intet skriver.
+    expect(KATALOG.filter((s) => s.laesende).map((s) => s.navn)).toEqual(['scenario_foreslaa_placering']);
   });
 
   it('afregningens godkend, bogfør og afvis er aldrig et værktøj', () => {
