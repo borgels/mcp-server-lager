@@ -738,6 +738,10 @@
                     "type": "boolean",
                     "deprecated": true,
                     "description": "Forældet (#156): true lægger mærket asbest til, false tager det af (fra modellens standard)"
+                  },
+                  "bekraeft": {
+                    "type": "boolean",
+                    "description": "Påkrævet for at oprette enheden uden et af modellens mærker med et værn (409 med mærkets navn og fjernes ellers, #161)"
                   }
                 },
                 "required": [
@@ -752,7 +756,7 @@
             "description": "{ enheder, tags }"
           },
           "409": {
-            "description": "Pladsen bryder placeringsreglerne (fx mærket udstyr på en almindelig hylde)"
+            "description": "Pladsen bryder placeringsreglerne (fx mærket udstyr på en almindelig hylde), eller: Et mærke med et værn fjernes, og bekraeft mangler: error har mærkets navn, fjernes er [{ noegle, navn }] (#161)"
           },
           "422": {
             "description": "Et mærke findes ikke eller er slået fra"
@@ -780,7 +784,7 @@
         }
       },
       "put": {
-        "summary": "Ret en enheds stamdata; null sletter et felt. garantiTil bliver en garantiopgave i vedligehold (når modulet er til). En ny plads tjekkes som «sæt på plads»: placeringsreglerne med de rettede særhåndteringsmærker og den rettede model, og forløbets trin (409 med grunden); samme plads igen tjekkes ikke. Rettes mærkerne eller modellen, så enheden står, hvor reglerne ikke tillader, gemmes rettelsen, og advarsel siger det (ellers null). Et nyt mærke skal være slået til (422); et, der står, kan sendes igen og fjernes. Enhedens egne felter rettes med PUT …/egenskaber",
+        "summary": "Ret en enheds stamdata; null sletter et felt. garantiTil bliver en garantiopgave i vedligehold (når modulet er til). En ny plads tjekkes som «sæt på plads»: placeringsreglerne med de rettede særhåndteringsmærker og den rettede model, og forløbets trin (409 med grunden); samme plads igen tjekkes ikke. Rettes mærkerne eller modellen, så enheden står, hvor reglerne ikke tillader, gemmes rettelsen, og advarsel siger det (ellers null). Et nyt mærke skal være slået til (422); et, der står, kan sendes igen og fjernes, men et med et værn (retur ≠ ingen eller en certificering) kun med bekraeft: true (409 ellers, #161) og aldrig, mens enheden er spærret eller i et forløb (409, også med bekraeft). maerkerTilfoej og maerkerFjern lægger til og tager af uden hele listen. Enhedens egne felter rettes med PUT …/egenskaber",
         "parameters": [
           {
             "name": "tag",
@@ -836,10 +840,32 @@
                     "maxItems": 20,
                     "description": "Erstatter enhedens særhåndteringsmærker (#156)"
                   },
+                  "maerkerTilfoej": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "maxItems": 20,
+                    "description": "Mærker, der lægges til (#161), uden at sende hele listen; de andre bliver. Ikke sammen med maerker (422). Et nyt mærke skal være slået til (422)"
+                  },
+                  "maerkerFjern": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "maxItems": 20,
+                    "description": "Mærker, der tages af (#161), uden at sende hele listen; de andre bliver. Ikke sammen med maerker (422); et mærke, der ikke står, er intet. Et mærke med et værn kræver bekraeft"
+                  },
                   "asbest": {
                     "type": "boolean",
                     "deprecated": true,
-                    "description": "Forældet (#156): true lægger mærket asbest til, false tager det af"
+                    "description": "Forældet (#156): true lægger mærket asbest til, false tager det af (kræver bekraeft)"
+                  },
+                  "bekraeft": {
+                    "type": "boolean",
+                    "description": "Påkrævet for at fjerne et særhåndteringsmærke med et værn (retur ≠ ingen eller en certificering), med maerker, maerkerFjern eller det forældede felt (409 med mærkets navn og fjernes ellers, #161)"
                   }
                 }
               }
@@ -851,7 +877,10 @@
             "description": "{ enhed, advarsel }"
           },
           "409": {
-            "description": "Den nye plads bryder placeringsreglerne eller forløbets trin"
+            "description": "Den nye plads bryder placeringsreglerne eller forløbets trin, et mærke med et værn fjernes fra en spærret enhed, eller: Et mærke med et værn fjernes, og bekraeft mangler: error har mærkets navn, fjernes er [{ noegle, navn }] (#161)"
+          },
+          "422": {
+            "description": "Et mærke findes ikke eller er slået fra, eller maerker sendt med maerkerTilfoej/maerkerFjern"
           }
         }
       }
@@ -3999,6 +4028,10 @@
                     "deprecated": true,
                     "description": "Forældet (#156): true = mærket asbest i maerker"
                   },
+                  "bekraeft": {
+                    "type": "boolean",
+                    "description": "Findes varenummeret, rettes den kendte model: mister den et mærke med et værn, kræver det bekraeft (409 ellers, #161)"
+                  },
                   "kostpris": {
                     "type": "number"
                   },
@@ -4034,6 +4067,9 @@
         "responses": {
           "201": {
             "description": "{ model }"
+          },
+          "409": {
+            "description": "Et mærke med et værn fjernes, og bekraeft mangler: error har mærkets navn, fjernes er [{ noegle, navn }] (#161)"
           }
         }
       }
@@ -4115,12 +4151,34 @@
                       "maxLength": 100
                     },
                     "maxItems": 20,
-                    "description": "Særhåndteringsmærkerne, en ny enhed af modellen får (#156); erstatter listen. Et nyt mærke skal være slået til (422), et, der står, kan sendes igen og fjernes"
+                    "description": "Særhåndteringsmærkerne, en ny enhed af modellen får (#156); erstatter listen. Et nyt mærke skal være slået til (422), et, der står, kan sendes igen og fjernes (et med et værn kun med bekraeft, #161)"
+                  },
+                  "maerkerTilfoej": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "maxItems": 20,
+                    "description": "Mærker, der lægges til (#161), uden at sende hele listen; de andre bliver. Ikke sammen med maerker (422). Et nyt mærke skal være slået til (422)"
+                  },
+                  "maerkerFjern": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "maxItems": 20,
+                    "description": "Mærker, der tages af (#161), uden at sende hele listen; de andre bliver. Ikke sammen med maerker (422); et mærke, der ikke står, er intet. Et mærke med et værn kræver bekraeft"
                   },
                   "asbestStandard": {
                     "type": "boolean",
                     "deprecated": true,
-                    "description": "Forældet (#156): true lægger mærket asbest til maerker, false tager det af"
+                    "description": "Forældet (#156): true lægger mærket asbest til maerker, false tager det af (kræver bekraeft)"
+                  },
+                  "bekraeft": {
+                    "type": "boolean",
+                    "description": "Påkrævet for at fjerne et særhåndteringsmærke med et værn (retur ≠ ingen eller en certificering), med maerker, maerkerFjern eller det forældede felt (409 med mærkets navn og fjernes ellers, #161)"
                   },
                   "aktiv": {
                     "type": "boolean"
@@ -4162,6 +4220,12 @@
         "responses": {
           "200": {
             "description": "{ model }"
+          },
+          "409": {
+            "description": "Et mærke med et værn fjernes, og bekraeft mangler: error har mærkets navn, fjernes er [{ noegle, navn }] (#161), eller modellen har enheder og slås fra"
+          },
+          "422": {
+            "description": "Et mærke findes ikke eller er slået fra, eller maerker sendt med maerkerTilfoej/maerkerFjern"
           }
         }
       }
