@@ -46,19 +46,45 @@ describe('OpenAPI-øjebliksbilledet', () => {
     expect(Object.keys(UDEN_VAERKTOEJ_HER).filter((op) => op in UDEN_VAERKTOEJ_I_KORTET)).toEqual([]);
   });
 
-  it('et værktøj på en operation markeret uden værktøj afvises, og en markering uden grund får en', () => {
-    const doc: OpenApiDoc = {
+  it('x-mcp på operationen eller stien, som boolean eller «false», giver ingen værktøj; en markering uden grund får en', () => {
+    const doc = {
       info: { version: 't' },
       paths: {
         '/hemmelig': { post: { 'x-mcp': { vaerktoej: false, grund: 'Et token.' } } },
+        '/tekst': { post: { 'x-mcp': { vaerktoej: ' False ', grund: 'Som tekst.' } } },
+        '/sti': { 'x-mcp': { vaerktoej: false, grund: 'Hele stien.' }, get: {}, delete: {} },
         '/tom': { get: { 'x-mcp': { vaerktoej: false } } },
-        '/aaben': { get: { 'x-mcp': { vaerktoej: true } } },
+        '/aaben': { get: { 'x-mcp': { vaerktoej: true } }, post: { 'x-mcp': { vaerktoej: 'true' } } },
       },
-    };
-    expect(udenVaerktoejIKortet(doc)).toEqual({ 'POST /hemmelig': 'Et token.', 'GET /tom': expect.stringContaining('x-mcp') });
-    const spec: ToolSpec = { navn: 'x', titel: 'x', beskrivelse: 'x', kort: 'x', eksempler: [], op: 'POST /hemmelig' };
-    expect(() => byg(spec, doc)).toThrow(/x-mcp/);
-    expect(() => byg({ ...spec, op: 'GET /aaben' }, doc)).not.toThrow();
+    } as unknown as OpenApiDoc;
+    expect(udenVaerktoejIKortet(doc)).toEqual({
+      'POST /hemmelig': 'Et token.',
+      'POST /tekst': 'Som tekst.',
+      'GET /sti': 'Hele stien.',
+      'DELETE /sti': 'Hele stien.',
+      'GET /tom': expect.stringContaining('x-mcp'),
+    });
+  });
+
+  it('byg() afviser en markeret operation, også bag medId og ops', () => {
+    const doc = {
+      info: { version: 't' },
+      paths: {
+        '/liste': { get: {} },
+        '/liste/{id}': { get: { parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }] } },
+        '/liste/{id}/token': { 'x-mcp': { vaerktoej: 'false', grund: 'Et token.' }, post: {} },
+        '/aaben': { post: {} },
+        '/hemmelig': { post: { 'x-mcp': { vaerktoej: false, grund: 'Hemmelig.' } } },
+      },
+    } as unknown as OpenApiDoc;
+    const spec: ToolSpec = { navn: 'x', titel: 'x', beskrivelse: 'x', kort: 'x', eksempler: [], op: 'GET /liste' };
+    expect(() => byg(spec, doc)).not.toThrow();
+    expect(() => byg({ ...spec, op: 'POST /hemmelig' }, doc)).toThrow(/x-mcp.*Hemmelig/);
+    expect(() => byg({ ...spec, medId: { felt: 'id', op: 'POST /liste/{id}/token' } }, doc)).toThrow(/x-mcp.*Et token/);
+    expect(() => byg({ ...spec, op: 'POST /aaben', ops: ['POST /aaben', 'POST /hemmelig'] }, doc)).toThrow(/x-mcp/);
+    // Og mod det rigtige kort: lånerens link og kanbankortets link kan ikke smugles ind.
+    expect(() => byg({ ...spec, op: 'GET /udlaan', medId: { felt: 'udlaanId', op: 'POST /udlaan/{id}/link' } })).toThrow(/x-mcp/);
+    expect(() => byg({ ...spec, op: 'GET /ansvarlig/kanban', ops: ['GET /ansvarlig/kanban/{id}/link'] })).toThrow(/x-mcp/);
   });
 
   it('kameraernes billede og strømme er ikke værktøjer, listen er', () => {

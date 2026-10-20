@@ -58,7 +58,7 @@ export function registerLagerTools(server: McpServer, client: LagerClient, optio
   const registrerede: { tool: RegisteredTool; moduler: string[] }[] = [];
   for (const spec of KATALOG) {
     const b = byg(spec);
-    const annotations = !b.skriv ? READ_TOOL_ANNOTATIONS : { ...WRITE_TOOL_ANNOTATIONS, destructiveHint: b.sletter, idempotentHint: b.idempotent, openWorldHint: b.aabenVerden };
+    const annotations = !b.skriv ? { ...READ_TOOL_ANNOTATIONS, openWorldHint: b.aabenVerden } : { ...WRITE_TOOL_ANNOTATIONS, destructiveHint: b.sletter, idempotentHint: b.idempotent, openWorldHint: b.aabenVerden };
     const tool = server.registerTool(spec.navn, { title: spec.titel, description: spec.beskrivelse, inputSchema: b.shape, annotations }, async (input, extra) =>
       run(spec.navn, input, async () => {
         const i = input as Input;

@@ -6,6 +6,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer } from '../src/server.js';
 import { LagerClient } from '../src/lager/client.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { registerLagerResources, RESOURCE_OPS } from '../src/resources.js';
+import { SPEC, type OpenApiDoc } from '../src/openapi/spec.js';
+import { KATALOG } from '../src/tools/katalog.js';
 
 const svar = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 type Kald = [URL, RequestInit];
@@ -76,12 +80,68 @@ describe('procesflows, udlån, kanban, stregkoder og indretning', () => {
     expect(url.pathname).toBe('/api/lager/stregkoder/5701234567892');
   });
 
-  it('ingen værktøjer til lånerens link, kanbankortets token eller kameraernes billeder', async () => {
-    const mcp = await forbind(vi.fn() as unknown as typeof fetch);
-    const navne = (await mcp.listTools()).tools.map((t) => t.name);
-    for (const n of ['lager_udlaan_link', 'lager_udlaan_link_tilbagekald', 'lager_laan', 'lager_ansvarlig_kanban_link', 'lager_ansvarlig_kanban_etiketter', 'lager_kanban', 'lager_kanban_signal', 'lager_iot_kamera_billede', 'lager_iot_kamera_live']) {
-      expect(navne, n).not.toContain(n);
+  it('bekraeft og certificeret har ingen standardværdi og sendes kun, når de er givet', async () => {
+    const fetchFn = vi.fn(async () => svar(200, {}));
+    const mcp = await forbind(fetchFn as unknown as typeof fetch);
+    const { tools } = await mcp.listTools();
+    for (const [navn, felt] of [['lager_procesforloeb_udfoer', 'certificeret'], ['lager_ansvarlig_placeringsregel_ret', 'bekraeft'], ['lager_ansvarlig_procesflow_ret', 'bekraeft'], ['lager_ansvarlig_procesflow_opret', 'bekraeft']] as const) {
+      const skema = tools.find((t) => t.name === navn)!.inputSchema as { properties: Record<string, { default?: unknown }>; required?: string[] };
+      expect(skema.properties[felt], `${navn}.${felt}`).toBeDefined();
+      expect(skema.properties[felt]!.default, `${navn}.${felt}`).toBeUndefined();
+      expect(skema.required ?? [], `${navn}.${felt}`).not.toContain(felt);
     }
-    expect(navne).toContain('lager_iot_kameraer');
+    await mcp.callTool({ name: 'lager_procesforloeb_udfoer', arguments: { forloebId: 9, trin: 'rengoering' } });
+    await mcp.callTool({ name: 'lager_ansvarlig_placeringsregel_ret', arguments: { placeringsregelId: 4, aktiv: false } });
+    await mcp.callTool({ name: 'lager_ansvarlig_procesflow_ret', arguments: { procesflowId: 2, navn: 'Rengøring' } });
+    const kroppe = fetchFn.mock.calls.map((c) => JSON.parse(String((c as unknown as Kald)[1].body)));
+    expect(kroppe).toEqual([{ trin: 'rengoering' }, { aktiv: false }, { navn: 'Rengøring' }]);
+  });
+
+  it('asbestændringer kræver brugerens ja, og 409 må ikke besvares med bekraeft af sig selv', async () => {
+    const mcp = await forbind(vi.fn() as unknown as typeof fetch);
+    const { tools } = await mcp.listTools();
+    for (const navn of ['lager_ansvarlig_placeringsregel_ret', 'lager_ansvarlig_procesflow_ret', 'lager_ansvarlig_procesflow_opret']) {
+      const t = tools.find((x) => x.name === navn)!;
+      expect(t.annotations?.destructiveHint, navn).toBe(true);
+      expect(t.description, navn).toMatch(/udtrykkelige ja/);
+      expect(t.description, navn).toMatch(/409.*spørg brugeren.*aldrig bekraeft på eget initiativ/);
+    }
+    const flowRet = tools.find((x) => x.name === 'lager_ansvarlig_procesflow_ret')!.description!;
+    for (const ord of ['steder', 'frigivesAf', 'tjekliste', 'certificering']) expect(flowRet).toContain(ord);
+  });
+
+  it('openWorldHint: påmindelsen mailer låneren, produktopslaget spørger eksterne kilder', async () => {
+    const mcp = await forbind(vi.fn() as unknown as typeof fetch);
+    const { tools } = await mcp.listTools();
+    const hint = (n: string) => tools.find((t) => t.name === n)!.annotations;
+    expect(hint('lager_udlaan_ret')?.openWorldHint).toBe(true);
+    expect(hint('lager_ansvarlig_produktopslag')?.openWorldHint).toBe(true);
+    expect(hint('lager_ansvarlig_produktopslag')?.readOnlyHint).toBe(true);
+    expect(hint('lager_stregkode')?.openWorldHint).toBe(false);
+  });
+
+  it('kanbanId er række-id\'et fundet ud fra kode, aldrig KB-koden skåret til et tal', async () => {
+    const mcp = await forbind(vi.fn() as unknown as typeof fetch);
+    const { tools } = await mcp.listTools();
+    for (const navn of ['lager_ansvarlig_kanban_et', 'lager_ansvarlig_kanban_ret', 'lager_ansvarlig_kanban_tilbagekald']) {
+      const t = tools.find((x) => x.name === navn)!;
+      const id = (t.inputSchema as { properties: Record<string, { description?: string }> }).properties.kanbanId!;
+      expect(id.description, navn).toMatch(/række-id.*lager_ansvarlig_kanban/);
+      expect(id.description, navn).toMatch(/aldrig KB-… ned til et tal/);
+    }
+    expect(KATALOG.filter((k) => k.navn.includes('kanban')).flatMap((k) => k.eksempler).filter((e) => /KB-\d+\b/.test(e))).toEqual([]);
+  });
+
+  it('en resource på en sti markeret uden værktøj registreres ikke', async () => {
+    const doc = structuredClone(SPEC) as OpenApiDoc;
+    (doc.paths['/skabeloner'] as Record<string, unknown>)['x-mcp'] = { vaerktoej: 'false', grund: 'Test.' };
+    const server = new McpServer({ name: 't', version: '0' });
+    registerLagerResources(server, new LagerClient({ baseUrl: 'https://lager.test', apiToken: 'tok', user: 'worker@example.com', fetchFn: vi.fn() as unknown as typeof fetch }), doc);
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.connect(a);
+    const mcp = new Client({ name: 'test', version: '0' });
+    await mcp.connect(b);
+    expect((await mcp.listResources()).resources.map((r) => r.uri)).toEqual(['lager://lagre']);
+    for (const op of Object.values(RESOURCE_OPS)) expect(SPEC.paths[op.split(' ')[1]!]?.get, op).toBeDefined();
   });
 });
