@@ -166,7 +166,17 @@ describe('særhåndteringsmærker', () => {
     for (const n of ['lager_ansvarlig_ret_enhed', 'lager_ansvarlig_ret_model']) {
       const t = tools.find((x) => x.name === n)!;
       expect(t.annotations, n).toMatchObject({ destructiveHint: true });
-      expect(t.description, n).toMatch(/ERSTATTER hele listen: læs først .* nuværende mærker .* send den fulde liste, og fjern kun et mærke efter brugerens udtrykkelige ja/);
+      expect(t.description, n).toMatch(/Læg mærker til med maerkerTilfoej .*intet fjernes ved et uheld/);
+      expect(t.description, n).toMatch(/maerker ERSTATTER hele listen .*læs så først de nuværende mærker, og send den fulde liste/);
+      expect(t.description, n).toMatch(/Fjern kun et mærke efter brugerens udtrykkelige ja/);
+      expect(t.description, n).toMatch(/409 med fjernes: vis mærkerne, spørg brugeren og send aldrig bekraeft på eget initiativ/);
+      const props = (t.inputSchema as { properties: Record<string, { description?: string; default?: unknown }> }).properties;
+      for (const f of ['maerker', 'maerkerTilfoej', 'maerkerFjern', 'bekraeft']) expect(props[f], `${n}.${f}`).toBeDefined();
+      // bekraeft har ingen standard og er ikke påkrævet: det sendes kun efter brugerens ja.
+      expect(props.bekraeft!.default, n).toBeUndefined();
+      expect(t.inputSchema.required ?? [], n).not.toContain('bekraeft');
+      expect(props.bekraeft!.description, n).toMatch(/^Udelad det; ved 409 med fjernes: vis mærkerne, spørg brugeren og send aldrig bekraeft på eget initiativ/);
+      expect(props.maerkerTilfoej!.description, n).toMatch(/^Anbefalet/);
     }
     for (const n of ['lager_ansvarlig_placeringsregel_opret', 'lager_ansvarlig_placeringsregel_ret']) {
       expect(felter(skema(n).properties!.hvem), n).toEqual(expect.arrayContaining(['maerker', 'udenMaerker']));
@@ -194,6 +204,36 @@ describe('særhåndteringsmærker', () => {
     expect(r.isError).toBe(true);
     expect(tekst(r)).toMatch(/forældet; brug maerker: \['asbest'\]/);
     expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['lager_ansvarlig_ret_enhed', { tag: 'T-00012' }, 'PUT /api/lager/ansvarlig/enheder/T-00012'],
+    ['lager_ansvarlig_ret_model', { modelId: 12 }, 'PUT /api/lager/ansvarlig/modeller/12'],
+  ] as [string, Record<string, unknown>, string][])('%s: maerker kan ikke blandes med maerkerTilfoej/maerkerFjern, og bekraeft sendes kun, når det er givet', async (navn, id, rute) => {
+    const fetchFn = vi.fn(async () => svar(200, {}));
+    const mcp = await forbind(fetchFn as unknown as typeof fetch);
+    for (const blandet of [{ maerker: ['asbest'], maerkerTilfoej: ['bly'] }, { maerker: [], maerkerFjern: ['asbest'] }]) {
+      const r = await mcp.callTool({ name: navn, arguments: { ...id, ...blandet } });
+      expect(r.isError).toBe(true);
+      expect(tekst(r)).toMatch(/maerker kan ikke kombineres med maerkerTilfoej\/maerkerFjern/);
+    }
+    expect(fetchFn).not.toHaveBeenCalled();
+    await mcp.callTool({ name: navn, arguments: { ...id, maerkerTilfoej: ['bly'] } });
+    await mcp.callTool({ name: navn, arguments: { ...id, maerkerFjern: ['asbest'], bekraeft: true } });
+    await mcp.callTool({ name: navn, arguments: { ...id, maerker: ['bly'] } });
+    const k = kald(fetchFn);
+    expect(k.map(([u, i]) => `${i.method} ${u.pathname}`)).toEqual([rute, rute, rute]);
+    expect(k.map(([, i]) => JSON.parse(String(i.body)))).toEqual([{ maerkerTilfoej: ['bly'] }, { maerkerFjern: ['asbest'], bekraeft: true }, { maerker: ['bly'] }]);
+  });
+
+  it('et 409 med fjernes kommer ud som fejl med mærkerne, uden bekraeft', async () => {
+    const fetchFn = vi.fn(async () => svar(409, { error: 'Mærket Asbest har et værn', fjernes: [{ noegle: 'asbest', navn: 'Asbest' }] }));
+    const mcp = await forbind(fetchFn as unknown as typeof fetch);
+    const r = await mcp.callTool({ name: 'lager_ansvarlig_ret_enhed', arguments: { tag: 'T-00012', maerkerFjern: ['asbest'] } });
+    expect(r.isError).toBe(true);
+    expect(tekst(r)).toContain('409');
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(kald(fetchFn)[0]![1].body))).toEqual({ maerkerFjern: ['asbest'] });
   });
 
   it('skjul og forbyd, der ikke rammer noget felt, er en fejl i kataloget', () => {

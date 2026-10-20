@@ -97,6 +97,25 @@ const ASBEST = "asbest er forældet; brug maerker: ['asbest'].";
 const ASBEST_STANDARD = "asbestStandard er forældet; brug maerker: ['asbest'].";
 const HVEM_ASBEST = "hvem.asbest er forældet; brug maerker: ['asbest'] (true) eller udenMaerker: ['asbest'] (false).";
 
+/**
+ * Mærkerne på en enhed eller model (#161): maerker erstatter listen, maerkerTilfoej og
+ * maerkerFjern retter den. De to måder kan ikke blandes (lageret svarer 422); her afvises
+ * det, før noget sendes.
+ */
+const MAERKER_TEKST = 'Læg mærker til med maerkerTilfoej (de andre bliver, så intet fjernes ved et uheld), og tag dem af med maerkerFjern; maerker ERSTATTER hele listen og bruges kun, når brugeren vil sætte hele listen: læs så først de nuværende mærker, og send den fulde liste. maerker kan ikke kombineres med maerkerTilfoej/maerkerFjern. Fjern kun et mærke efter brugerens udtrykkelige ja. Fjernes et mærke med et værn (retur eller certificering), svarer lageret 409 med fjernes: vis mærkerne, spørg brugeren og send aldrig bekraeft på eget initiativ.';
+const MAERKER_BESKRIV: Record<string, string> = {
+  maerkerTilfoej: 'Anbefalet til at lægge mærker til: nøglerne fra lager_saermaerker; de andre mærker bliver. Ikke sammen med maerker.',
+  maerkerFjern: 'Mærker, der tages af (kun efter brugerens udtrykkelige ja); de andre bliver. Ikke sammen med maerker.',
+  maerker: 'ERSTATTER hele listen; udelad det, og brug maerkerTilfoej/maerkerFjern, medmindre brugeren vil sætte hele listen. Ikke sammen med maerkerTilfoej/maerkerFjern.',
+  bekraeft: 'Udelad det; ved 409 med fjernes: vis mærkerne, spørg brugeren og send aldrig bekraeft på eget initiativ. Kun true, når brugeren udtrykkeligt har sagt ja til at fjerne netop de mærker.',
+};
+const kunEnMaerkemaade = (op: OpNoegle) => async (send: Sender, i: Input) => {
+  if (i.maerker !== undefined && (i.maerkerTilfoej !== undefined || i.maerkerFjern !== undefined)) {
+    throw new Error('maerker kan ikke kombineres med maerkerTilfoej/maerkerFjern: brug maerkerTilfoej/maerkerFjern, eller maerker med hele listen.');
+  }
+  return send(op, i);
+};
+
 export const FAELLES_ALIAS: Record<string, string> = { lager: 'lagerId', projekt: 'projektId', model: 'modelId', lokation: 'lokationId' };
 
 /**
@@ -554,13 +573,15 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_ansvarlig_ret_model', titel: 'Lageransvarlig: ret model', op: 'PUT /ansvarlig/modeller/{id}', alias: { id: 'modelId' },
     // asbestStandard er forældet (#156) og afvises: maerker erstatter det. maerker erstatter hele listen, så værktøjet er destruktivt.
     forbyd: { asbestStandard: ASBEST_STANDARD }, destruktiv: true,
-    beskrivelse: 'Ret en models stamdata, værnemidler og produktside, og de særhåndteringsmærker, en ny enhed af modellen får (maerker: nøglerne fra lager_saermaerker). maerker ERSTATTER hele listen: læs først modellens nuværende mærker (lager_ansvarlig_modeller med modelId), send den fulde liste, og fjern kun et mærke efter brugerens udtrykkelige ja. Det forældede asbestStandard afvises; brug maerker. Kun de felter, der sendes, ændres. Priser rettes i appen.',
+    beskriv: MAERKER_BESKRIV, kald: kunEnMaerkemaade('PUT /ansvarlig/modeller/{id}'),
+    beskrivelse: 'Ret en models stamdata, værnemidler og produktside, og de særhåndteringsmærker, en ny enhed af modellen får (nøglerne fra lager_saermaerker; de nuværende står på lager_ansvarlig_modeller med modelId). ' + MAERKER_TEKST + ' Det forældede asbestStandard afvises. Kun de felter, der sendes, ændres. Priser rettes i appen.',
     kort: 'Lageransvarlig: ret en models stamdata, værnemidler og produktside.', eksempler: ['model 12 kræver høreværn og briller', 'sæt eftersynsinterval på model 12 til 12 måneder'] },
   { navn: 'lager_ansvarlig_ret_enhed', titel: 'Lageransvarlig: ret enhed', op: 'PUT /ansvarlig/enheder/{tag}',
     // Købspris går på afregningsarket, og model bestemmer prisen: økonomien rettes i appen.
     // asbest er forældet (#156) og afvises: maerker erstatter det. maerker erstatter hele listen, så værktøjet er destruktivt.
     skjul: ['koebspris', 'modelId'], forbyd: { asbest: ASBEST }, destruktiv: true, nullbar: ['serienummer', 'koebsdato', 'leverandoer', 'bilag', 'note', 'plads'],
-    beskrivelse: 'Ret en enheds stamdata (serienummer, købsdato, leverandør, bilag, note, hjemmeplads) og særhåndteringsmærker. maerker: særhåndteringsmærkernes nøgler (se lager_saermaerker; et nyt mærke skal være slået til). maerker ERSTATTER hele listen: læs først enhedens nuværende mærker (lager_ansvarlig_enheder med tag), send den fulde liste, og fjern kun et mærke efter brugerens udtrykkelige ja. Det forældede asbest afvises; brug maerker. Står enheden derefter, hvor placeringsreglerne ikke tillader, gemmes rettelsen med en advarsel. null sletter et felt. Model og købspris rettes i appen; enhedens egne felter med lager_ansvarlig_enhed_egenskaber.',
+    beskriv: MAERKER_BESKRIV, kald: kunEnMaerkemaade('PUT /ansvarlig/enheder/{tag}'),
+    beskrivelse: 'Ret en enheds stamdata (serienummer, købsdato, leverandør, bilag, note, hjemmeplads) og særhåndteringsmærker (nøglerne fra lager_saermaerker; et nyt mærke skal være slået til; de nuværende står på lager_ansvarlig_enheder med tag). ' + MAERKER_TEKST + ' Det forældede asbest afvises. Står enheden derefter, hvor placeringsreglerne ikke tillader, gemmes rettelsen med en advarsel. null sletter et felt. Model og købspris rettes i appen; enhedens egne felter med lager_ansvarlig_enhed_egenskaber.',
     kort: 'Lageransvarlig: ret en enheds stamdata.', eksempler: ['T-00012 har serienummer 4711', 'T-00012 står på A-12-3', 'T-00012 har været brugt i asbest'] },
   { navn: 'lager_ansvarlig_saet_tilfoej_del', titel: 'Lageransvarlig: læg del i sæt', op: 'POST /ansvarlig/saet/{tag}/dele',
     beskrivelse: 'Gør en enhed (kode) til del af sættet med mærket tag.',
