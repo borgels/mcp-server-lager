@@ -28,23 +28,24 @@ export type Bygget = {
   vaelg: (input: Input) => OpNoegle;
 };
 
-/** Fjern «a.b»-felter: b på a's objekt eller på a's linjer. */
+/** Fjern «a.b»- og «a.b.c»-felter: det sidste led på objektet (eller linjerne) under de første. */
 function utenIndlejrede(s: JsonSkema, skjul: string[], doc: OpenApiDoc): JsonSkema {
-  const dybe = skjul.filter((x) => x.includes('.'));
-  if (!dybe.length || !s.properties) return s;
-  const props = { ...s.properties };
-  for (const sti of dybe) {
-    const [a, b] = sti.split('.') as [string, string];
-    const p = props[a];
-    if (!p) continue;
-    const fjern = (o: JsonSkema): JsonSkema => {
-      const r = o.$ref ? doc.components?.schemas?.[o.$ref.replace('#/components/schemas/', '')] ?? o : o;
-      const { [b]: _vaek, ...rest } = r.properties ?? {};
-      return { ...r, properties: rest, required: (r.required ?? []).filter((x) => x !== b) };
-    };
-    props[a] = p.type === 'array' && p.items ? { ...p, items: fjern(p.items) } : fjern(p);
-  }
-  return { ...s, properties: props };
+  const slaa = (o: JsonSkema): JsonSkema => (o.$ref ? doc.components?.schemas?.[o.$ref.replace('#/components/schemas/', '')] ?? o : o);
+  const fjern = (o: JsonSkema, led: string[]): JsonSkema => {
+    const r = slaa(o);
+    const [a, ...rest] = led as [string, ...string[]];
+    if (!rest.length) {
+      const { [a]: _vaek, ...props } = r.properties ?? {};
+      return { ...r, properties: props, required: (r.required ?? []).filter((x) => x !== a) };
+    }
+    const p = r.properties?.[a];
+    if (!p) return r;
+    const ny = p.type === 'array' && p.items ? { ...p, items: fjern(p.items, rest) } : fjern(p, rest);
+    return { ...r, properties: { ...r.properties, [a]: ny } };
+  };
+  let ud = s;
+  for (const sti of skjul) if (sti.includes('.') && ud.properties) ud = fjern(ud, sti.split('.'));
+  return ud;
 }
 
 /** Indskrænk enum-værdierne på «a.b» (eller «a») til de tilladte. */
@@ -151,9 +152,9 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
 
   return {
     shape,
-    skriv: metode !== 'get',
+    skriv: metode !== 'get' && !spec.laesende,
     sletter: metode === 'delete' || !!spec.destruktiv,
-    idempotent: metode === 'get' || (spec.idempotent ?? metode !== 'post'),
+    idempotent: metode === 'get' || !!spec.laesende || (spec.idempotent ?? metode !== 'post'),
     aabenVerden: !!spec.aabenVerden,
     moduler: [...new Set(ops.flatMap((op) => modulerFor(op, doc)))].sort(),
     ops,

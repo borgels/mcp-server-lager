@@ -73,10 +73,10 @@ export function registerLagerPrompts(server: McpServer): void {
     'planlaeg',
     {
       title: 'Planlæg et rum',
-      description: 'Indret eller omindret et rum i scenarier: læs rummet, lav et eller flere forslag med planlagte ting, valider og sammenlign. Vedtagelsen er et menneskes.',
+      description: 'Indret eller omindret et rum i scenarier: interview om målene, placeringsmotorens forslag, 1 til 3 scenarier med zoner og placeringer, validering og sammenligning. Vedtagelsen er et menneskes.',
       argsSchema: {
         rum: z.string().describe('Rummet eller stedet: lokations-id eller kode.'),
-        maal: z.string().describe('Hvad planen skal opnå, fx «plads til 40 kasser mere» eller «et arbejdsbord ved vinduet».'),
+        maal: z.string().optional().describe('Hvad planen skal opnå, fx «plads til 40 kasser mere» eller «et arbejdsbord ved vinduet»; ellers spørger interviewet.'),
         alternativer: z.string().optional().describe('Hvor mange forslag (1 til 3); standard 2.'),
         lagerId: z.string().optional().describe('Lager-id; udelades med ét lager.'),
       },
@@ -84,17 +84,28 @@ export function registerLagerPrompts(server: McpServer): void {
     ({ rum, maal, alternativer, lagerId }) => {
       const n = Math.min(3, Math.max(1, Number.parseInt(alternativer ?? '2', 10) || 2));
       return besked(
-        `Planlæg ${rum}${lagerTekst(lagerId)}. Målet: ${maal}.\n\n` +
-          `1. Find rummet: lager_lokation (id) eller lager_lokation_kode (kode). Læs plantegningen med lager_lokation_visning (slags: oppefra) eller resourcen lager://lokation/{id}/plan: mål, vægge, døre, det, der står, og gangene. Se belægningen med lager_belaegning (rod) og evnerne (strøm, udsugning …) med lager_lokation_evner.\n` +
-          '2. Se på lager_scenarier, om der allerede er en kladde for rummet. Find egnede skabeloner med lager_skabeloner (type, fx reol eller skab) og mål med lager_skabelon.\n' +
-          `3. Lav ${n} forslag, hvert som sit eget scenarie med scenario_opret (rodId = rummet, et kort navn, der siger idéen). Byg dem med scenario_tilfoej_ting (skabelon eller navn + type med geometri i mm, parentId = rummet eller en planlagt lokation) og scenario_flyt (flyt, drej eller fjern det, der står). Brug koebspris, når du kender den.\n` +
-          '4. Valider hvert forslag med scenario_valider og ret det, til der ingen fejl er; forklar de advarsler, der er tilbage (kollisioner, smalle gange, vægt, krav til evner).\n' +
-          `5. ${n > 1 ? 'Sammenlign forslagene med scenario_sammenlign (ider kommasepareret) og vis' : 'Vis'} pris, ny kapacitet, flytninger og advarsler i en kort tabel med din anbefaling.\n\n` +
-          'Du arbejder kun i scenarier: det rigtige træ ændres ikke. Vedtagelsen er den lageransvarliges beslutning i appen; sig, hvilket scenarie du anbefaler, men vedtag intet. Slet eller forkast ingen scenarier, jeg ikke selv har bedt om.',
+        `Planlæg ${rum}${lagerTekst(lagerId)}. ${maal ? `Målet: ${maal}.` : 'Målet finder vi i interviewet.'}\n\n` +
+          `1. Læs rummet. Find det med lager_lokation (id) eller lager_lokation_kode (kode). Læs plantegningen med lager_lokation_visning (slags: oppefra) eller resourcen lager://lokation/{id}/plan: mål, vægge, døre, det, der står, og gangene. Se belægningen med lager_belaegning (rod), evnerne (strøm, udsugning …) med lager_lokation_evner, særhåndteringsmærkerne med lager_saermaerker og reglerne med lager_placeringsregler. Se på lager_scenarier, om der allerede er en kladde for rummet.\n` +
+          '2. Interview mig, før du foreslår noget. Spørg kort, et emne ad gangen, og byg videre på mine svar:\n' +
+          '   - Hvad skal stå her: værktøj, maskiner, forbrugsvarer, materialer; og hvad skal ud.\n' +
+          '   - Arbejdspladserne: hvor arbejder jeg (fx bordet ved vinduet), stående eller siddende, og hvilken hånd.\n' +
+          '   - Hvor ofte bruges tingene: dagligt, ugentligt, månedligt eller sjældent.\n' +
+          '   - Hvad hører sammen og skal stå samlet (fx skruer med skruetrækkere, en kasse med sit tilbehør).\n' +
+          '   - Zoner: fx elektronik, 3D-print, grovværktøj, maling, og hvad hver kræver (strøm, udsugning, ro for støv).\n' +
+          '   - Særhåndtering og forurening: udstyr med et særhåndteringsmærke (asbest, bly, PCB …) og udstyr, der skal holdes adskilt; reglerne for det er hårde.\n' +
+          '   - Rammerne: budget, hvad der må flyttes eller fjernes, tunge ting.\n' +
+          '   Gentag til sidst målene i en kort liste, og spørg, om de er rigtige.\n' +
+          `3. Lav ${n} forslag, hvert som sit eget scenarie med scenario_opret (rodId = rummet, et kort navn, der siger idéen; forslagene skal være forskellige, fx efter zoner, arbejdsgang eller pris). I hvert:\n` +
+          '   - Møbler og hylder: scenario_tilfoej_ting (skabelon fra lager_skabeloner, eller navn + type med geometri i mm, parentId = rummet eller en planlagt lokation) og scenario_flyt (flyt, drej eller fjern det, der står). Brug koebspris, når du kender den.\n' +
+          '   - Zonerne fra interviewet: scenario_zone_opret med formål, lokationer og de evner, der følger med (ret med scenario_zone_ret).\n' +
+          '   - Placeringerne: scenario_foreslaa_placering med det, interviewet gav: pr. ting (frekvens, gruppe, zone, zoneKrav, vaegtKg, maerker) eller pr. kategori i profiler, og i maal stilling, arbejdspunkt (arbejdspladsens lokation) og vægtene. Forslaget skriver intet. Vis mig de vigtigste linjer med score og forklaring og dem uden plads med grunden, og spørg, hvilke jeg tager imod.\n' +
+          '   - Læg kun de linjer, jeg har taget imod, i kladden med scenario_placer (forslagets placer-linjer, version og kilde: motor). Svarer det 409, er scenariet ændret: lav et nyt forslag; 422: en regel eller et hårdt krav forbyder pladsen, så find en anden.\n' +
+          '4. Valider hvert forslag med scenario_valider og scenario_vurder_placering, og ret det, til der ingen fejl er; forklar de advarsler, der er tilbage (kollisioner, smalle gange, vægt, kapacitet, krav til evner, brudte placeringskrav).\n' +
+          `5. ${n > 1 ? 'Sammenlign forslagene med scenario_sammenlign (ider kommasepareret) og vis' : 'Vis'} pris, ny kapacitet, flytninger, placeringernes score og advarsler i en kort tabel med din anbefaling, og hvorfor. Spørg, om noget skal justeres; så gentager du trin 3 og 4 for det forslag.\n\n` +
+          'Du arbejder kun i scenarier: det rigtige træ ændres ikke. Vedtagelsen er den lageransvarliges beslutning i appen; sig, hvilket scenarie du anbefaler, men vedtag intet. Slet eller forkast ingen scenarier eller zoner, jeg ikke selv har bedt om. Ret ikke særhåndteringsmærker, placeringsregler eller procesflows som en del af planen.',
       );
     },
   );
-
   server.registerPrompt(
     'klimatjek',
     { title: 'Klimatjek', description: 'Klimaet i et rum: følerne, dugpunkt, luftkvalitet, alarmer og ventilation, med forslag.', argsSchema: { rum: z.string().describe('Rummets lokations-id.') } },

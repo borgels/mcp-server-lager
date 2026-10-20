@@ -399,6 +399,155 @@
         }
       }
     },
+    "/ansvarlig/economic/varer": {
+      "x-moduler": [
+        "economic"
+      ],
+      "get": {
+        "operationId": "lager_ansvarlig_economic_varer",
+        "summary": "e-conomic-modulet: hvilken vare i sælgerens e-conomic (lagerets selskab) leje, salg og hver forbrugsgruppe faktureres på. produktnr null: forbruget i gruppen kan ikke lægges i e-conomic. Rettes i appen",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ saelger, aftale, varer }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "saelger": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "code": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "navn": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    },
+                    "aftale": {
+                      "type": "boolean",
+                      "description": "Sælgeren har en e-conomic-aftale"
+                    },
+                    "varer": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "noegle": {
+                            "type": "string"
+                          },
+                          "slags": {
+                            "type": "string",
+                            "enum": [
+                              "leje",
+                              "salg",
+                              "gruppe"
+                            ]
+                          },
+                          "navn": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "aktiv": {
+                            "type": "boolean"
+                          },
+                          "produktnr": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "brugt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "salg uden eget varenummer: vaerktoej's, som bruges"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "lager_ansvarlig_economic_vare_saet",
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "Hvilken vare i regnskabet forbruget faktureres på er bogføringens opsætning; den sættes i appen af den med indstillingsretten, aldrig af en agent."
+        },
+        "summary": "Sæt (produktnr: null fjerner) ét varenummer i sælgerens e-conomic-aftale: leje, salg eller en forbrugsgruppe. Kræver lageransvarlig på alle lagre. Gælder fra næste beregning af en kladde",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "noegle": {
+                    "type": "string"
+                  },
+                  "produktnr": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9._-]{1,25}$"
+                  }
+                },
+                "required": [
+                  "noegle",
+                  "produktnr"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ saelger, aftale, varer } som GET"
+          },
+          "403": {
+            "description": "Ikke lageransvarlig på alle lagre"
+          },
+          "404": {
+            "description": "Sælgeren har ingen e-conomic-aftale"
+          },
+          "422": {
+            "description": "Ukendt nøgle eller ugyldigt varenummer"
+          }
+        }
+      }
+    },
     "/ansvarlig/eksport": {
       "get": {
         "summary": "Hele installationen (eller ét lager) som ZIP: manifest.json med skemaets version, data/<tabel>.json og filer/<id> (fotos, dokumenter). Ingen sessioner, loginlinks, revisionslog eller hemmeligheder; intet fra andre konti. Kræver lageransvarlig på alle lagre",
@@ -520,7 +669,7 @@
         }
       },
       "post": {
-        "summary": "Opret enheder; antal > 1 giver fortløbende tags (og så ingen tag eller serienummer). Pladsen tjekkes mod placeringsreglerne (409 med grunden)",
+        "summary": "Opret enheder; antal > 1 giver fortløbende tags (og så ingen tag eller serienummer). Pladsen tjekkes mod placeringsreglerne med enhedens særhåndteringsmærker (409 med grunden). maerker udeladt følger modellens standard; et nyt mærke skal være slået til (422)",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -576,8 +725,19 @@
                   "plads": {
                     "type": "string"
                   },
+                  "maerker": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "maxItems": 20,
+                    "description": "Særhåndteringsmærkerne (#156): nøglerne fra /saermaerker (navnet går også). Et nyt mærke skal være slået til (422)"
+                  },
                   "asbest": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "deprecated": true,
+                    "description": "Forældet (#156): true lægger mærket asbest til, false tager det af (fra modellens standard)"
                   }
                 },
                 "required": [
@@ -592,14 +752,17 @@
             "description": "{ enheder, tags }"
           },
           "409": {
-            "description": "Pladsen bryder placeringsreglerne (fx asbestudstyr på en almindelig hylde)"
+            "description": "Pladsen bryder placeringsreglerne (fx mærket udstyr på en almindelig hylde)"
+          },
+          "422": {
+            "description": "Et mærke findes ikke eller er slået fra"
           }
         }
       }
     },
     "/ansvarlig/enheder/{tag}": {
       "get": {
-        "summary": "Enheden med fotos, bilag (dokumenter: egne og modellens), historik, lejeperioder og salg",
+        "summary": "Enheden med fotos, bilag (dokumenter: egne og modellens), historik, lejeperioder og salg, og feltsættene (feltsaet), dens lager ser; værdierne står i enhed.egenskaber (#21)",
         "parameters": [
           {
             "name": "tag",
@@ -617,7 +780,7 @@
         }
       },
       "put": {
-        "summary": "Ret en enheds stamdata; null sletter et felt. garantiTil bliver en garantiopgave i vedligehold (når modulet er til). En ny plads tjekkes som «sæt på plads»: placeringsreglerne med det rettede asbestmærke og den rettede model, og forløbets trin (409 med grunden); samme plads igen tjekkes ikke. Rettes asbestmærket eller modellen, så enheden står, hvor reglerne ikke tillader, gemmes rettelsen, og advarsel siger det (ellers null)",
+        "summary": "Ret en enheds stamdata; null sletter et felt. garantiTil bliver en garantiopgave i vedligehold (når modulet er til). En ny plads tjekkes som «sæt på plads»: placeringsreglerne med de rettede særhåndteringsmærker og den rettede model, og forløbets trin (409 med grunden); samme plads igen tjekkes ikke. Rettes mærkerne eller modellen, så enheden står, hvor reglerne ikke tillader, gemmes rettelsen, og advarsel siger det (ellers null). Et nyt mærke skal være slået til (422); et, der står, kan sendes igen og fjernes. Enhedens egne felter rettes med PUT …/egenskaber",
         "parameters": [
           {
             "name": "tag",
@@ -664,8 +827,19 @@
                   "plads": {
                     "type": "string"
                   },
+                  "maerker": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "maxItems": 20,
+                    "description": "Erstatter enhedens særhåndteringsmærker (#156)"
+                  },
                   "asbest": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "deprecated": true,
+                    "description": "Forældet (#156): true lægger mærket asbest til, false tager det af"
                   }
                 }
               }
@@ -780,6 +954,201 @@
         "responses": {
           "201": {
             "description": "{ dokument: Dokument }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/enheder/{tag}/egenskaber": {
+      "put": {
+        "operationId": "lager_ansvarlig_enhed_egenskaber",
+        "summary": "Sæt enhedens egne felter efter feltsættene. Flettes ind i de gemte; null fjerner et felt. Værdier i et sæt, der er slået fra, bliver stående",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "egenskaber": {
+                    "type": "object",
+                    "description": "{ felt: værdi | null }; felterne er dem i de aktive sæt, enhedens lager ser (GET /enhedsfelter)"
+                  }
+                },
+                "required": [
+                  "egenskaber"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ egenskaber, linje }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "egenskaber": {
+                      "type": "object"
+                    },
+                    "linje": {
+                      "type": "string",
+                      "description": "Værdierne på én linje i felternes rækkefølge"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Ikke lageransvarlig på enhedens lager"
+          },
+          "404": {
+            "description": "Enheden kendes ikke"
+          },
+          "422": {
+            "description": "Ukendt felt, forkert type eller påkrævet felt mangler"
+          }
+        }
+      }
+    },
+    "/ansvarlig/enhedsfelter": {
+      "post": {
+        "operationId": "lager_ansvarlig_enhedsfelter_opret",
+        "summary": "Nyt feltsæt for enhederne. Med lagerId lagerets enheder (lageransvarlig dér); lagerId: null = alle enheder på installationen (lageransvarlig på alle lagre)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "noegle": {
+                    "type": "string"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "beskrivelse": {
+                    "type": "string"
+                  },
+                  "felter": {
+                    "type": "object",
+                    "description": "Se Feltsaet.felter"
+                  }
+                },
+                "required": [
+                  "noegle",
+                  "navn"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ feltsaet }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "feltsaet": {
+                      "$ref": "#/components/schemas/Feltsaet"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nøglen findes, et felt står i et andet aktivt sæt, eller gemte værdier passer ikke"
+          },
+          "422": {
+            "description": "Ugyldigt skema eller reserveret feltnavn"
+          }
+        }
+      }
+    },
+    "/ansvarlig/enhedsfelter/{id}": {
+      "patch": {
+        "operationId": "lager_ansvarlig_enhedsfelter_ret",
+        "summary": "Ret et feltsæt (også det indbyggede); aktiv: false slår det fra, og værdierne på enhederne bliver stående. Nøglen ligger fast",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": "string"
+                  },
+                  "beskrivelse": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "felter": {
+                    "type": "object"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ feltsaet }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "feltsaet": {
+                      "$ref": "#/components/schemas/Feltsaet"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Findes ikke på dine lagre"
+          },
+          "409": {
+            "description": "Gemte værdier passer ikke til de nye felter, eller et felt står i et andet aktivt sæt"
           }
         }
       }
@@ -1244,6 +1613,139 @@
         }
       }
     },
+    "/ansvarlig/forbrugsgrupper": {
+      "post": {
+        "operationId": "lager_ansvarlig_forbrugsgruppe_opret",
+        "summary": "Ny forbrugsgruppe for hele installationen (lageransvarlig på alle lagre)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "noegle": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]{0,47}$"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  },
+                  "fremhaevet": {
+                    "type": "boolean"
+                  },
+                  "sortering": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "noegle",
+                  "navn"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ gruppe }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "gruppe": {
+                      "$ref": "#/components/schemas/Forbrugsgruppe"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Ikke lageransvarlig på alle lagre"
+          },
+          "409": {
+            "description": "Nøglen eller navnet findes"
+          },
+          "422": {
+            "description": "Ugyldig nøgle eller navn"
+          }
+        }
+      }
+    },
+    "/ansvarlig/forbrugsgrupper/{noegle}": {
+      "patch": {
+        "operationId": "lager_ansvarlig_forbrugsgruppe_ret",
+        "summary": "Ret en forbrugsgruppe (også en indbygget): navn (null = standardnavnet igen for en indbygget), aktiv, fremhaevet, sortering. Nøglen ligger fast; slås den fra, bliver varerne i den",
+        "parameters": [
+          {
+            "name": "noegle",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  },
+                  "fremhaevet": {
+                    "type": "boolean"
+                  },
+                  "sortering": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ gruppe }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "gruppe": {
+                      "$ref": "#/components/schemas/Forbrugsgruppe"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Ikke lageransvarlig på alle lagre"
+          },
+          "404": {
+            "description": "Gruppen findes ikke"
+          },
+          "409": {
+            "description": "Navnet findes, eller det er den sidste aktive gruppe"
+          }
+        }
+      }
+    },
     "/ansvarlig/forbrugsvarer": {
       "get": {
         "summary": "Forbrugsvarer med beholdning, minimum, kost- og salgspris",
@@ -1293,12 +1795,8 @@
                   },
                   "gruppe": {
                     "type": "string",
-                    "enum": [
-                      "forbrug",
-                      "vaerne",
-                      "arbtoj",
-                      "vaerktoej"
-                    ]
+                    "maxLength": 100,
+                    "description": "Gruppens nøgle fra /forbrugsgrupper (#124; navnet går også). Uden ved oprettelse: forbrug, når den er til, ellers den første aktive"
                   },
                   "enhed": {
                     "type": "string"
@@ -1334,8 +1832,7 @@
                   }
                 },
                 "required": [
-                  "navn",
-                  "gruppe"
+                  "navn"
                 ]
               }
             }
@@ -1379,12 +1876,8 @@
                   },
                   "gruppe": {
                     "type": "string",
-                    "enum": [
-                      "forbrug",
-                      "vaerne",
-                      "arbtoj",
-                      "vaerktoej"
-                    ]
+                    "maxLength": 100,
+                    "description": "Gruppens nøgle fra /forbrugsgrupper (#124); en gruppe, der er slået fra, kun hvis varen allerede står i den"
                   },
                   "enhed": {
                     "type": "string"
@@ -1843,7 +2336,9 @@
                               "type": "string"
                             },
                             "gruppe": {
-                              "type": "string"
+                              "type": "string",
+                              "maxLength": 100,
+                              "description": "Gruppens nøgle fra /forbrugsgrupper (#124; navnet går også). Uden ved oprettelse: forbrug, når den er til, ellers den første aktive"
                             },
                             "varenr": {
                               "type": "string"
@@ -3490,8 +3985,19 @@
                   "leverandoer": {
                     "type": "string"
                   },
+                  "maerker": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "maxItems": 20,
+                    "description": "Særhåndteringsmærkerne, en ny enhed af modellen får (#156)"
+                  },
                   "asbestStandard": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "deprecated": true,
+                    "description": "Forældet (#156): true = mærket asbest i maerker"
                   },
                   "kostpris": {
                     "type": "number"
@@ -3602,8 +4108,19 @@
                   "levetidAar": {
                     "type": "integer"
                   },
+                  "maerker": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "maxItems": 20,
+                    "description": "Særhåndteringsmærkerne, en ny enhed af modellen får (#156); erstatter listen. Et nyt mærke skal være slået til (422), et, der står, kan sendes igen og fjernes"
+                  },
                   "asbestStandard": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "deprecated": true,
+                    "description": "Forældet (#156): true lægger mærket asbest til maerker, false tager det af"
                   },
                   "aktiv": {
                     "type": "boolean"
@@ -3982,7 +4499,7 @@
     },
     "/ansvarlig/modtag": {
       "post": {
-        "summary": "Registrér en enhed på lageret med hjemmeplads. Pladsen tjekkes mod placeringsreglerne (409 med grunden); en enhed i karantæne eller til klargøring frigives først (409), og asbestudstyr, der er ude, afleveres i stedet (409). Sætter modtagelsen asbestmærket, tjekkes også den plads, enheden bliver stående på. En solgt asbestenhed går til klargøring. asbest: false fjerner ikke et asbestmærke (det rettes under stamdata)",
+        "summary": "Registrér en enhed på lageret med hjemmeplads. Pladsen tjekkes mod placeringsreglerne (409 med grunden); en enhed i karantæne eller til klargøring frigives først (409), og udstyr med et særhåndteringsmærke med værn ved retur (fx asbest), der er ude, afleveres i stedet (409). Sætter modtagelsen et mærke, tjekkes også den plads, enheden bliver stående på. En solgt enhed med et mærke får en retur (flowet, ellers mærkets værn: asbest til klargøring). En modtagelse sætter mærker, men fjerner aldrig et (det rettes under stamdata). Et nyt mærke skal være slået til (422)",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -4014,8 +4531,19 @@
                   "dagssats": {
                     "type": "number"
                   },
+                  "maerker": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "maxItems": 20,
+                    "description": "Særhåndteringsmærker, modtagelsen sætter (#156); de andre bliver"
+                  },
                   "asbest": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "deprecated": true,
+                    "description": "Forældet (#156): true sætter mærket asbest; false er intet nyt"
                   }
                 },
                 "required": [
@@ -4030,7 +4558,10 @@
             "description": "{ enhed }"
           },
           "409": {
-            "description": "Pladsen bryder placeringsreglerne, enheden er spærret, eller asbestudstyr står ude"
+            "description": "Pladsen bryder placeringsreglerne, enheden er spærret, eller mærket udstyr står ude"
+          },
+          "422": {
+            "description": "Et mærke findes ikke eller er slået fra"
           }
         }
       }
@@ -4045,7 +4576,7 @@
         }
       },
       "put": {
-        "summary": "Slå et modul til eller fra for hele installationen. Kræver lageransvarlig på alle lagre; 409 når LAGER_MODULER har låst det",
+        "summary": "Slå et modul til eller fra for hele installationen. Kræver lageransvarlig på alle lagre; 409 når LAGER_MODULER har låst det. Asbest er ikke et modul længere (#156, 422): det er et særhåndteringsmærke (/ansvarlig/saermaerker/asbest)",
         "requestBody": {
           "required": true,
           "content": {
@@ -4059,7 +4590,11 @@
                   "aktiv": {
                     "type": "boolean"
                   }
-                }
+                },
+                "required": [
+                  "id",
+                  "aktiv"
+                ]
               }
             }
           }
@@ -4067,6 +4602,12 @@
         "responses": {
           "200": {
             "description": "{ moduler, maaRette }"
+          },
+          "409": {
+            "description": "Låst af LAGER_MODULER"
+          },
+          "422": {
+            "description": "Ukendt modul (også asbest, der er et mærke)"
           }
         }
       }
@@ -4967,17 +5508,34 @@
                   "hvem": {
                     "type": "object",
                     "properties": {
-                      "asbest": {
-                        "type": "boolean"
+                      "maerker": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "Enheden har mindst ét af særhåndteringsmærkerne (nøglerne, se /saermaerker)"
+                      },
+                      "udenMaerker": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "Enheden har ingen af mærkerne"
                       },
                       "kategorier": {
                         "type": "array",
                         "items": {
                           "type": "string"
-                        }
+                        },
+                        "description": "Modellens kategori er en af dem"
+                      },
+                      "asbest": {
+                        "type": "boolean",
+                        "deprecated": true,
+                        "description": "Forældet (#156): true = maerker: [\"asbest\"], false = udenMaerker: [\"asbest\"]. Læses i én udgivelse; svar har maerker"
                       }
                     },
-                    "description": "Hvem det gælder: enhedens asbestmærke og modellens kategori. Udeladt = alle"
+                    "description": "Hvem det gælder: enhedens særhåndteringsmærker (#156) og modellens kategori. Udeladt = alle"
                   },
                   "steder": {
                     "type": "array",
@@ -5035,7 +5593,7 @@
     "/ansvarlig/placeringsregler/{id}": {
       "patch": {
         "operationId": "lager_ansvarlig_placeringsregel_ret",
-        "summary": "Ret en placeringsregel eller slå den fra (aktiv: false), også de indbyggede (fx asbestzonerne). Nøglen ligger fast",
+        "summary": "Ret en placeringsregel eller slå den fra (aktiv: false), også de indbyggede (fx særzonerne for et mærke). Nøglen ligger fast",
         "parameters": [
           {
             "name": "id",
@@ -5066,17 +5624,34 @@
                   "hvem": {
                     "type": "object",
                     "properties": {
-                      "asbest": {
-                        "type": "boolean"
+                      "maerker": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "Enheden har mindst ét af særhåndteringsmærkerne (nøglerne, se /saermaerker)"
+                      },
+                      "udenMaerker": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "Enheden har ingen af mærkerne"
                       },
                       "kategorier": {
                         "type": "array",
                         "items": {
                           "type": "string"
-                        }
+                        },
+                        "description": "Modellens kategori er en af dem"
+                      },
+                      "asbest": {
+                        "type": "boolean",
+                        "deprecated": true,
+                        "description": "Forældet (#156): true = maerker: [\"asbest\"], false = udenMaerker: [\"asbest\"]. Læses i én udgivelse; svar har maerker"
                       }
                     },
-                    "description": "Hvem det gælder: enhedens asbestmærke og modellens kategori. Udeladt = alle"
+                    "description": "Hvem det gælder: enhedens særhåndteringsmærker (#156) og modellens kategori. Udeladt = alle"
                   },
                   "steder": {
                     "type": "array",
@@ -5108,7 +5683,7 @@
                   },
                   "bekraeft": {
                     "type": "boolean",
-                    "description": "Påkrævet for at slå en regel, der dækker asbestudstyr, fra eller rette den væk fra asbest (409 ellers)"
+                    "description": "Påkrævet for at slå en regel, der dækker udstyr med et særhåndteringsmærke (hvem.maerker), fra, rette den væk fra mærket, eller gøre den løsere (andre steder, en anden slags, et andet hvem) (409 ellers)"
                   }
                 }
               }
@@ -5123,7 +5698,10 @@
             "description": "Reglen findes ikke på dine lagre"
           },
           "409": {
-            "description": "Reglen dækker asbestudstyr, ændringen slår den fra, retter den væk fra asbest eller gør den løsere, og bekraeft mangler"
+            "description": "Reglen dækker et mærke, ændringen slår den fra, retter den væk fra mærket eller gør den løsere, og bekraeft mangler"
+          },
+          "422": {
+            "description": "Ugyldig regel, eller hvem nævner et mærke, der ikke findes"
           }
         }
       }
@@ -5446,17 +6024,34 @@
                       "hvem": {
                         "type": "object",
                         "properties": {
-                          "asbest": {
-                            "type": "boolean"
+                          "maerker": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "Enheden har mindst ét af særhåndteringsmærkerne (nøglerne, se /saermaerker)"
+                          },
+                          "udenMaerker": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "Enheden har ingen af mærkerne"
                           },
                           "kategorier": {
                             "type": "array",
                             "items": {
                               "type": "string"
-                            }
+                            },
+                            "description": "Modellens kategori er en af dem"
+                          },
+                          "asbest": {
+                            "type": "boolean",
+                            "deprecated": true,
+                            "description": "Forældet (#156): true = maerker: [\"asbest\"], false = udenMaerker: [\"asbest\"]. Læses i én udgivelse; svar har maerker"
                           }
                         },
-                        "description": "Hvem det gælder: enhedens asbestmærke og modellens kategori. Udeladt = alle"
+                        "description": "Hvem det gælder: enhedens særhåndteringsmærker (#156) og modellens kategori. Udeladt = alle"
                       }
                     }
                   },
@@ -5546,7 +6141,7 @@
                   },
                   "bekraeft": {
                     "type": "boolean",
-                    "description": "Påkrævet for et flow for hele installationen (lagerId: null), der tager asbestreturer (start.hvem.asbest): det kan gå forud for det indbyggede asbestflow (409 ellers)"
+                    "description": "Påkrævet for et flow for hele installationen (lagerId: null), der tager returer med et særhåndteringsmærke (start.hvem.maerker): det kan gå forud for installationens flow for mærket (409 ellers)"
                   }
                 },
                 "required": [
@@ -5565,10 +6160,10 @@
             "description": "{ flow }"
           },
           "409": {
-            "description": "Nøglen findes, eller et flow for hele installationen dækker asbestudstyr, og bekraeft mangler"
+            "description": "Nøglen findes, eller et flow for hele installationen dækker et mærke, og bekraeft mangler"
           },
           "422": {
-            "description": "Ugyldigt flow"
+            "description": "Ugyldigt flow, eller hvem nævner et mærke, der ikke findes"
           }
         }
       }
@@ -5702,7 +6297,7 @@
                   },
                   "bekraeft": {
                     "type": "boolean",
-                    "description": "Påkrævet for at slå et flow, der dækker asbestudstyr, fra eller rette det væk fra asbest; så gælder kun kernens værn (409 ellers)"
+                    "description": "Påkrævet for at slå et flow, der dækker udstyr med et særhåndteringsmærke, fra, rette det væk fra mærket, eller gøre det løsere (trin, start); så gælder kun kernens værn (409 ellers)"
                   }
                 }
               }
@@ -5717,7 +6312,7 @@
             "description": "Flowet findes ikke på dine lagre"
           },
           "409": {
-            "description": "Aktive forløb står på et trin, der fjernes, eller flowet dækker asbest og bekraeft mangler"
+            "description": "Aktive forløb står på et trin, der fjernes, eller flowet dækker et mærke og bekraeft mangler"
           }
         }
       }
@@ -5881,6 +6476,180 @@
         }
       }
     },
+    "/ansvarlig/saermaerker": {
+      "post": {
+        "operationId": "lager_ansvarlig_saermaerke_opret",
+        "summary": "Nyt særhåndteringsmærke for hele installationen (lageransvarlig på alle lagre). Uden retur er værnet klargøring. zoneregler: true lægger to placeringsregler ind: udstyret står i en særzone for mærket (evnen saerzone med maerke = nøglen) eller i service, karantæne eller modtagelsen, og særzonen er kun til det",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "noegle": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]{0,47}$"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "beskrivelse": {
+                    "type": "string"
+                  },
+                  "retur": {
+                    "type": "string",
+                    "enum": [
+                      "til_klargoering",
+                      "karantaene",
+                      "ingen"
+                    ]
+                  },
+                  "certificering": {
+                    "type": "string"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  },
+                  "sortering": {
+                    "type": "integer"
+                  },
+                  "zoneregler": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "noegle",
+                  "navn"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ maerke, regler }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "maerke": {
+                      "$ref": "#/components/schemas/Saermaerke"
+                    },
+                    "regler": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Ikke lageransvarlig på alle lagre"
+          },
+          "409": {
+            "description": "Nøglen eller navnet findes"
+          },
+          "422": {
+            "description": "Ugyldigt mærke"
+          }
+        }
+      }
+    },
+    "/ansvarlig/saermaerker/{noegle}": {
+      "patch": {
+        "operationId": "lager_ansvarlig_saermaerke_ret",
+        "summary": "Ret et særhåndteringsmærke (også det indbyggede asbest): navn (null = standardnavnet igen), beskrivelse, retur, certificering, aktiv, sortering. Nøglen ligger fast. At slå det fra, give det et andet værn ved retur eller fjerne eller ændre certificeringen kræver bekraeft, mens det er i brug",
+        "parameters": [
+          {
+            "name": "noegle",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "beskrivelse": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "retur": {
+                    "type": "string",
+                    "enum": [
+                      "til_klargoering",
+                      "karantaene",
+                      "ingen"
+                    ]
+                  },
+                  "certificering": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  },
+                  "sortering": {
+                    "type": "integer"
+                  },
+                  "bekraeft": {
+                    "type": "boolean",
+                    "description": "Påkrævet for en rettelse, der løsner værnet, mens enheder, modeller, regler eller flows bruger mærket (409 med antallene ellers)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ maerke }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "maerke": {
+                      "$ref": "#/components/schemas/Saermaerke"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Ikke lageransvarlig på alle lagre"
+          },
+          "404": {
+            "description": "Mærket findes ikke"
+          },
+          "409": {
+            "description": "Navnet findes, mærket er låst af driften, eller det er i brug og bekraeft mangler"
+          }
+        }
+      }
+    },
     "/ansvarlig/saet/{tag}": {
       "get": {
         "summary": "Sættet med priser på delene",
@@ -6025,8 +6794,11 @@
                   "niveau": {
                     "type": "integer",
                     "enum": [
-                      1
-                    ]
+                      1,
+                      2,
+                      3
+                    ],
+                    "description": "1 indretning (standard), 2 zonering, 3 placering"
                   }
                 },
                 "required": [
@@ -6050,7 +6822,7 @@
     "/ansvarlig/scenarier/{id}": {
       "patch": {
         "operationId": "scenario_ret",
-        "summary": "Omdøb, ret noten, arkivér (status forkastet) eller gør til kladde igen. Et vedtaget scenarie er historik (409)",
+        "summary": "Omdøb, ret noten eller niveauet, arkivér (status forkastet) eller gør til kladde igen. Et vedtaget scenarie er historik (409)",
         "parameters": [
           {
             "name": "id",
@@ -6086,6 +6858,14 @@
                     "type": [
                       "string",
                       "null"
+                    ]
+                  },
+                  "niveau": {
+                    "type": "integer",
+                    "enum": [
+                      1,
+                      2,
+                      3
                     ]
                   },
                   "status": {
@@ -6232,6 +7012,235 @@
         }
       }
     },
+    "/ansvarlig/scenarier/{id}/placer": {
+      "post": {
+        "operationId": "scenario_placer",
+        "summary": "Læg placeringer i scenariets kladde, alt eller intet: en enhed eller forbrugsvare får en ny plads i scenariet, en model bliver en planlagt ting på pladsen, og en planlagt ting flyttes. Det rigtige træ røres ikke før scenario_vedtag (et menneskes). Hver placering holdes op mod placeringsreglerne og de hårde krav til evner (422 med grunden); mål, kapacitet og vægt er valideringens advarsler (plads). Send forslagets version, så svarer et ændret scenarie 409",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Scenariets id"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "placeringer": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "enhed": {
+                          "type": "string",
+                          "description": "En rigtig enheds mærke (tag)"
+                        },
+                        "forbrugsvare": {
+                          "type": "integer",
+                          "description": "En forbrugsvares id"
+                        },
+                        "fra": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "description": "Kun forbrugsvare: lokationen, alt flyttes fra (null = kun tildel den nye). Uden: den eneste lokation, varen står på"
+                        },
+                        "model": {
+                          "type": "integer",
+                          "description": "En models id: bliver en planlagt ting på pladsen"
+                        },
+                        "antal": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Kun model"
+                        },
+                        "ting": {
+                          "type": "integer",
+                          "description": "En planlagt ting i scenariet (ikke en planlagt lokation)"
+                        },
+                        "kategori": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "Kun en forbrugsvare og en ting uden model: kategorien, placeringsreglerne ser (en enhed og en model har deres egen; ellers 422)"
+                        },
+                        "maerker": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "maxLength": 100
+                          },
+                          "maxItems": 20,
+                          "description": "Kun en forbrugsvare og en ting uden model: særhåndteringsmærkerne, placeringsreglerne ser (#156; nøglerne fra /saermaerker, navnet går også; erstatter listen)"
+                        },
+                        "asbest": {
+                          "type": "boolean",
+                          "deprecated": true,
+                          "description": "Forældet (#156): true lægger mærket asbest til maerker, false tager det af"
+                        },
+                        "lokationId": {
+                          "type": "integer",
+                          "description": "Pladsen i scenariet (en rigtig, der ikke fjernes, eller en planlagt i samme scenarie)"
+                        },
+                        "fjern": {
+                          "type": "boolean",
+                          "enum": [
+                            true
+                          ],
+                          "description": "Fjern enhedens eller varens placering fra kladden"
+                        },
+                        "frekvens": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "daglig",
+                            "ugentlig",
+                            "maanedlig",
+                            "sjaelden",
+                            null
+                          ],
+                          "description": "Brugsfrekvensen: afgør grebshøjde og nærhed. Ukendt regnes som månedlig (privat brug har ingen udtjek-log; den angives eller gættes)"
+                        },
+                        "gruppe": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "Hører sammen med (fx «skruer»): emner i samme gruppe placeres tæt i træet"
+                        },
+                        "zone": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "Zonens nøgle, emnet hører til"
+                        },
+                        "zoneKrav": {
+                          "type": "string",
+                          "enum": [
+                            "skal",
+                            "boer"
+                          ],
+                          "description": "skal = et hårdt krav; boer (standard) = et blødt mål"
+                        },
+                        "vaegtKg": {
+                          "type": [
+                            "number",
+                            "null"
+                          ],
+                          "minimum": 0,
+                          "description": "Pr. stk; tæller mod bæreevnen, og tunge ting lægges lavt"
+                        },
+                        "maal": {
+                          "type": "object",
+                          "properties": {
+                            "bredde_mm": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "dybde_mm": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "hoejde_mm": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            }
+                          },
+                          "description": "Mål i mm; går over modellens"
+                        }
+                      }
+                    },
+                    "description": "Højst 300; fx forslagets placer-linjer"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "description": "Scenariets version fra forslaget (409, når det er ændret siden)"
+                  },
+                  "kilde": {
+                    "type": "string",
+                    "enum": [
+                      "motor",
+                      "haand"
+                    ],
+                    "description": "motor = fra et forslag (standard haand)"
+                  }
+                },
+                "required": [
+                  "placeringer"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ scenarie, placeringer, ting }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "scenarie": {
+                      "$ref": "#/components/schemas/Scenarie"
+                    },
+                    "placeringer": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Placering"
+                      }
+                    },
+                    "ting": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Scenarieting"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Scenariet, en ting eller en lokation findes ikke"
+          },
+          "409": {
+            "description": "Scenariet er ikke en kladde, eller ændret siden version"
+          },
+          "422": {
+            "description": "Ugyldig linje, eller en placeringsregel eller et hårdt krav forbyder placeringen"
+          }
+        }
+      }
+    },
     "/ansvarlig/scenarier/{id}/ting": {
       "post": {
         "operationId": "scenario_tilfoej_ting",
@@ -6347,6 +7356,24 @@
                   },
                   "note": {
                     "type": "string"
+                  },
+                  "kategori": {
+                    "type": "string",
+                    "description": "Kun en ting i fritekst (ikke en model eller planlagt lokation): kategorien, placeringsreglerne ser"
+                  },
+                  "maerker": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "maxItems": 20,
+                    "description": "Kun en ting i fritekst: særhåndteringsmærkerne, placeringsreglerne ser (#156; nøglerne fra /saermaerker)"
+                  },
+                  "asbest": {
+                    "type": "boolean",
+                    "deprecated": true,
+                    "description": "Forældet (#156): true = maerker med asbest"
                   }
                 },
                 "required": [
@@ -6453,7 +7480,7 @@
         },
         "responses": {
           "200": {
-            "description": "{ scenarie, indkoebsliste, arbejdsliste, tilsidesat }",
+            "description": "{ scenarie, indkoebsliste, arbejdsliste, printliste, tilsidesat }",
             "content": {
               "application/json": {
                 "schema": {
@@ -6469,7 +7496,14 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "description": "{ slags: opstil|flyt|nedlaeg|placer, lokation|ting, i|fra|til }"
+                        "description": "{ slags: opstil|flyt|nedlaeg|placer|flyt_enhed|flyt_vare|zone, lokation|ting|enhed|vare|zone, i|fra|til }: flyttelisten. Zonerne er nu evner på lokationerne (etiketten zone og zonens egne), og enhederne har nye hjemmepladser"
+                      }
+                    },
+                    "printliste": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "description": "Planlagte bins pr. skuffe (som scenario_hent)"
                       }
                     },
                     "tilsidesat": {
@@ -6491,6 +7525,220 @@
           },
           "422": {
             "description": "version mangler, eller tilsidesaet uden begrundelse"
+          }
+        }
+      }
+    },
+    "/ansvarlig/scenarier/{id}/zoner": {
+      "post": {
+        "operationId": "scenario_zone_opret",
+        "summary": "Ny zone i scenariet (niveau 2): en etiket med et formål (fx elektronik, 3D-print, grovværktøj) på lokationer, rigtige eller planlagte i scenariet, med de evner, der følger med (fx strøm). I scenariet gælder zonens evner for reglerne, kravene og placeringsmotoren; ved vedtagelsen bliver de evner på lokationerne (etiketten zone { noegle, navn, formaal } og zonens egne). En lokation er i højst én zone pr. scenarie; et barn kan have sin egen",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Scenariets id"
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": "string"
+                  },
+                  "noegle": {
+                    "type": "string",
+                    "description": "Små bogstaver, tal og _; standard: navnet skrevet om"
+                  },
+                  "formaal": {
+                    "type": "string"
+                  },
+                  "evner": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "evne": {
+                          "type": "string",
+                          "description": "En evnetypes nøgle (lager_evnetyper); ikke zone"
+                        },
+                        "parametre": {
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "evne"
+                      ]
+                    }
+                  },
+                  "lokationer": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "required": [
+                  "navn"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ zone: Zone }"
+          },
+          "404": {
+            "description": "En lokation findes ikke i scenariet"
+          },
+          "409": {
+            "description": "Nøglen findes, en lokation er i en anden zone, eller scenariet er ikke en kladde"
+          },
+          "422": {
+            "description": "Ugyldig evne eller krop"
+          }
+        }
+      }
+    },
+    "/ansvarlig/scenarier/{id}/zoner/{zoneId}": {
+      "patch": {
+        "operationId": "scenario_zone_ret",
+        "summary": "Ret en zone: navn, formål, evner og lokationer (lokationer erstatter listen; tilfoej og fjern retter den). Nøglen ligger fast",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Scenariets id"
+          },
+          {
+            "name": "zoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": "string"
+                  },
+                  "formaal": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "evner": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "evne": {
+                          "type": "string"
+                        },
+                        "parametre": {
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "evne"
+                      ]
+                    }
+                  },
+                  "lokationer": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "tilfoej": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "fjern": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ zone: Zone }"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "scenario_zone_slet",
+        "summary": "Slet en zone i scenariet; det rigtige træ røres ikke. Idempotent af natur: et gentaget kald svarer 404",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Scenariets id"
+          },
+          {
+            "name": "zoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ slettet }"
           }
         }
       }
@@ -8340,6 +9588,53 @@
         }
       }
     },
+    "/enhedsfelter": {
+      "get": {
+        "operationId": "lager_enhedsfelter",
+        "summary": "Feltsættene for enhederne: installationens (fx Tekniske hjælpemidler) og lagrenes egne, med felterne",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "inaktive",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "Også dem, der er slået fra"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ feltsaet }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "feltsaet": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Feltsaet"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/evnetyper": {
       "get": {
         "operationId": "lager_evnetyper",
@@ -8631,6 +9926,45 @@
         "responses": {
           "201": {
             "description": "{ udtag, bestillinger, afvist, sum }"
+          }
+        }
+      }
+    },
+    "/forbrugsgrupper": {
+      "get": {
+        "operationId": "lager_forbrugsgrupper",
+        "summary": "Forbrugsvarernes grupper i rækkefølge (installationens liste)",
+        "parameters": [
+          {
+            "name": "inaktive",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "Også dem, der er slået fra"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ grupper }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "grupper": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Forbrugsgruppe"
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -13306,17 +14640,34 @@
                           "hvem": {
                             "type": "object",
                             "properties": {
-                              "asbest": {
-                                "type": "boolean"
+                              "maerker": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "description": "Enheden har mindst ét af særhåndteringsmærkerne (nøglerne, se /saermaerker)"
+                              },
+                              "udenMaerker": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "description": "Enheden har ingen af mærkerne"
                               },
                               "kategorier": {
                                 "type": "array",
                                 "items": {
                                   "type": "string"
-                                }
+                                },
+                                "description": "Modellens kategori er en af dem"
+                              },
+                              "asbest": {
+                                "type": "boolean",
+                                "deprecated": true,
+                                "description": "Forældet (#156): true = maerker: [\"asbest\"], false = udenMaerker: [\"asbest\"]. Læses i én udgivelse; svar har maerker"
                               }
                             },
-                            "description": "Hvem det gælder: enhedens asbestmærke og modellens kategori. Udeladt = alle"
+                            "description": "Hvem det gælder: enhedens særhåndteringsmærker (#156) og modellens kategori. Udeladt = alle"
                           },
                           "steder": {
                             "type": "array",
@@ -13533,17 +14884,34 @@
                               "hvem": {
                                 "type": "object",
                                 "properties": {
-                                  "asbest": {
-                                    "type": "boolean"
+                                  "maerker": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "description": "Enheden har mindst ét af særhåndteringsmærkerne (nøglerne, se /saermaerker)"
+                                  },
+                                  "udenMaerker": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "description": "Enheden har ingen af mærkerne"
                                   },
                                   "kategorier": {
                                     "type": "array",
                                     "items": {
                                       "type": "string"
-                                    }
+                                    },
+                                    "description": "Modellens kategori er en af dem"
+                                  },
+                                  "asbest": {
+                                    "type": "boolean",
+                                    "deprecated": true,
+                                    "description": "Forældet (#156): true = maerker: [\"asbest\"], false = udenMaerker: [\"asbest\"]. Læses i én udgivelse; svar har maerker"
                                   }
                                 },
-                                "description": "Hvem det gælder: enhedens asbestmærke og modellens kategori. Udeladt = alle"
+                                "description": "Hvem det gælder: enhedens særhåndteringsmærker (#156) og modellens kategori. Udeladt = alle"
                               }
                             }
                           },
@@ -13842,7 +15210,7 @@
       ],
       "get": {
         "operationId": "lager_procesforloeb_log",
-        "summary": "Ét forløb med loggen: hvert trin med hvem, hvornår, noten, de afkrydsede punkter og certificeringen (dokumentationen, fx til asbest)",
+        "summary": "Ét forløb med loggen: hvert trin med hvem, hvornår, noten, de afkrydsede punkter og certificeringen (dokumentationen, fx for særhåndteret udstyr)",
         "parameters": [
           {
             "name": "id",
@@ -14069,7 +15437,7 @@
       ],
       "post": {
         "operationId": "lager_procesforloeb_udfoer",
-        "summary": "Udfør trinnet, forløbet står på (trin = det, du så). Tjeklistens påkrævede punkter og en certificering skal med; et trin for den lageransvarlige kræver hende. Det sidste trin er frigivelsen",
+        "summary": "Udfør trinnet, forløbet står på (trin = det, du så). Tjeklistens påkrævede punkter og en certificering skal med; et trin for den lageransvarlige kræver hende. Det sidste trin er frigivelsen, og så gælder også certificeringen, enhedens særhåndteringsmærker kræver",
         "parameters": [
           {
             "name": "id",
@@ -14109,7 +15477,7 @@
                   },
                   "certificeret": {
                     "type": "boolean",
-                    "description": "Bekræft trinnets certificering"
+                    "description": "Bekræft trinnets certificering (og ved frigivelsen mærkernes)"
                   },
                   "note": {
                     "type": "string"
@@ -14147,6 +15515,45 @@
         "responses": {
           "200": {
             "description": "{ projekter: Projekt[] }"
+          }
+        }
+      }
+    },
+    "/saermaerker": {
+      "get": {
+        "operationId": "lager_saermaerker",
+        "summary": "Særhåndteringsmærkerne (asbest, bly, PCB …) i rækkefølge, med installationens regler og flows for hvert",
+        "parameters": [
+          {
+            "name": "inaktive",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "Også dem, der er slået fra"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ maerker }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "maerker": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Saermaerke"
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -14409,6 +15816,62 @@
                     "indkoebsliste": {
                       "$ref": "#/components/schemas/Indkoebsliste"
                     },
+                    "zoner": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Zone"
+                      }
+                    },
+                    "placeringer": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Placering"
+                      }
+                    },
+                    "printliste": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "lokationId": {
+                            "type": "integer"
+                          },
+                          "sti": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "antal": {
+                            "type": "integer"
+                          },
+                          "bins": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "celler_b": {
+                                  "type": "integer"
+                                },
+                                "celler_d": {
+                                  "type": "integer"
+                                },
+                                "hoejde_u": {
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
+                                "antal": {
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "description": "Planlagte bins pr. skuffe (rasterets forælder): størrelse i celler, højde i enheder og antal (#86)"
+                    },
                     "tilsidesat": {
                       "type": [
                         "object",
@@ -14428,6 +15891,327 @@
           },
           "404": {
             "description": "Findes ikke på kalderens lagre"
+          }
+        }
+      }
+    },
+    "/scenarier/{id}/placering": {
+      "post": {
+        "operationId": "scenario_foreslaa_placering",
+        "summary": "Placeringsmotoren: foreslå en plads til hver ting i scenariet, med en score (0–100) og en forklaring pr. ting, eller grundene til, at der ingen er. Deterministisk (samme scenarie, version og krop giver samme svar), og den skriver intet: send forslagets placer-linjer til scenario_placer for at lægge dem i kladden. Hårde krav brydes aldrig: placeringsreglerne (fx asbest- og karantænezoner) og modellens hårde krav til evner på scenariets træ med zonernes evner, en fast plads kun til sin model, tingen skal kunne være der (indre mål; ukendte mål er usikre), kapacitet, bæreevne og fodaftryk, og zoneKrav skal. Bløde mål: pasform, grebshøjde efter brugsfrekvens, tunge ting lavt, grupper samlet, i den ønskede zone, nær arbejdspunktet, bløde krav og færre flytninger. Lav 2–3 bud med forskellige maal eller profiler, og sammenlign scorerne",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Scenariets id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ting": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "enhed": {
+                          "type": "string",
+                          "description": "En rigtig enheds mærke (tag)"
+                        },
+                        "forbrugsvare": {
+                          "type": "integer",
+                          "description": "En forbrugsvares id"
+                        },
+                        "fra": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "description": "Kun forbrugsvare: lokationen, alt flyttes fra (null = kun tildel den nye). Uden: den eneste lokation, varen står på"
+                        },
+                        "model": {
+                          "type": "integer",
+                          "description": "En models id: bliver en planlagt ting på pladsen"
+                        },
+                        "antal": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Kun model"
+                        },
+                        "ting": {
+                          "type": "integer",
+                          "description": "En planlagt ting i scenariet (ikke en planlagt lokation)"
+                        },
+                        "kategori": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "Kun en forbrugsvare og en ting uden model: kategorien, placeringsreglerne ser (en enhed og en model har deres egen; ellers 422)"
+                        },
+                        "maerker": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "maxLength": 100
+                          },
+                          "maxItems": 20,
+                          "description": "Kun en forbrugsvare og en ting uden model: særhåndteringsmærkerne, placeringsreglerne ser (#156; nøglerne fra /saermaerker, navnet går også; erstatter listen)"
+                        },
+                        "asbest": {
+                          "type": "boolean",
+                          "deprecated": true,
+                          "description": "Forældet (#156): true lægger mærket asbest til maerker, false tager det af"
+                        },
+                        "frekvens": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "daglig",
+                            "ugentlig",
+                            "maanedlig",
+                            "sjaelden",
+                            null
+                          ],
+                          "description": "Brugsfrekvensen: afgør grebshøjde og nærhed. Ukendt regnes som månedlig (privat brug har ingen udtjek-log; den angives eller gættes)"
+                        },
+                        "gruppe": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "Hører sammen med (fx «skruer»): emner i samme gruppe placeres tæt i træet"
+                        },
+                        "zone": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "Zonens nøgle, emnet hører til"
+                        },
+                        "zoneKrav": {
+                          "type": "string",
+                          "enum": [
+                            "skal",
+                            "boer"
+                          ],
+                          "description": "skal = et hårdt krav; boer (standard) = et blødt mål"
+                        },
+                        "vaegtKg": {
+                          "type": [
+                            "number",
+                            "null"
+                          ],
+                          "minimum": 0,
+                          "description": "Pr. stk; tæller mod bæreevnen, og tunge ting lægges lavt"
+                        },
+                        "maal": {
+                          "type": "object",
+                          "properties": {
+                            "bredde_mm": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "dybde_mm": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "hoejde_mm": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            }
+                          },
+                          "description": "Mål i mm; går over modellens"
+                        }
+                      }
+                    },
+                    "description": "Tingene, der skal placeres (højst 300 i alt med udvalget)"
+                  },
+                  "udvalg": {
+                    "type": "object",
+                    "properties": {
+                      "under": {
+                        "type": "integer",
+                        "description": "Alt under denne lokation (standard: omraade)"
+                      },
+                      "slags": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "enhed",
+                            "forbrugsvare",
+                            "ting"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "profiler": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "properties": {
+                        "frekvens": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "daglig",
+                            "ugentlig",
+                            "maanedlig",
+                            "sjaelden",
+                            null
+                          ],
+                          "description": "Brugsfrekvensen: afgør grebshøjde og nærhed. Ukendt regnes som månedlig (privat brug har ingen udtjek-log; den angives eller gættes)"
+                        },
+                        "gruppe": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "Hører sammen med (fx «skruer»): emner i samme gruppe placeres tæt i træet"
+                        },
+                        "zone": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "Zonens nøgle, emnet hører til"
+                        },
+                        "zoneKrav": {
+                          "type": "string",
+                          "enum": [
+                            "skal",
+                            "boer"
+                          ],
+                          "description": "skal = et hårdt krav; boer (standard) = et blødt mål"
+                        },
+                        "vaegtKg": {
+                          "type": [
+                            "number",
+                            "null"
+                          ],
+                          "minimum": 0,
+                          "description": "Pr. stk; tæller mod bæreevnen, og tunge ting lægges lavt"
+                        },
+                        "maal": {
+                          "type": "object",
+                          "properties": {
+                            "bredde_mm": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "dybde_mm": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "hoejde_mm": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            }
+                          },
+                          "description": "Mål i mm; går over modellens"
+                        }
+                      }
+                    },
+                    "description": "Egenskaber pr. kategori fra interviewet: nøglen er «kategori:<modellens kategori>», «gruppe:<forbrugsgruppens nøgle>» eller «model:<id>». En tings egne egenskaber går forud"
+                  },
+                  "omraade": {
+                    "type": "integer",
+                    "description": "Pladserne under denne lokation (standard: scenariets rod)"
+                  },
+                  "maal": {
+                    "$ref": "#/components/schemas/Maalsaetning"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Forslaget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Placeringsforslag"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Kræver lageransvarlig (et forslag regner op til ~1,5 s)"
+          },
+          "404": {
+            "description": "Scenariet, området eller en ting findes ikke på kalderens lagre"
+          },
+          "422": {
+            "description": "Ugyldig krop, eller for stort (højst 300 ting, 2000 pladser og 300.000 kombinationer): afgræns området"
+          },
+          "503": {
+            "description": "Motoren nåede ikke at regne færdig; afgræns området"
+          }
+        }
+      },
+      "get": {
+        "operationId": "scenario_vurder_placering",
+        "summary": "Vurder det, scenariet placerer (enheder og forbrugsvarer i kladden og planlagte ting med en plads), med motorens mål: score og forklaring pr. ting og de hårde krav, en placering bryder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Scenariets id"
+          },
+          {
+            "name": "stilling",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "staaende",
+                "siddende"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vurderingen",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Placeringsvurdering"
+                }
+              }
+            }
           }
         }
       }
@@ -14464,7 +16248,7 @@
     "/scenarier/sammenlign": {
       "get": {
         "operationId": "scenario_sammenlign",
-        "summary": "Sammenlign 2–3 scenarier: købspris i alt (og linjer uden pris), ny kapacitet (pladser, hyldeareal, rumfang; netto efter det, der fjernes), flytninger, fjernelser, nye advarsler og fejl, og hvem der er bedst på hvert",
+        "summary": "Sammenlign 2–3 scenarier: købspris i alt (og linjer uden pris), ny kapacitet (pladser, hyldeareal, rumfang; netto efter det, der fjernes), flytninger, fjernelser, nye advarsler og fejl, placeringerne og deres score (placeringsmotoren med standardmålene, #86), og hvem der er bedst på hvert",
         "parameters": [
           {
             "name": "ider",
@@ -14494,6 +16278,19 @@
                           },
                           "navn": {
                             "type": "string"
+                          },
+                          "placeringer": {
+                            "type": "integer"
+                          },
+                          "placeringsscore": {
+                            "type": [
+                              "number",
+                              "null"
+                            ],
+                            "description": "0 til 100; null uden placeringer"
+                          },
+                          "zoner": {
+                            "type": "integer"
                           },
                           "koebsprisIAlt": {
                             "type": "number"
@@ -14591,6 +16388,13 @@
                         },
                         "faerrestAdvarsler": {
                           "type": "integer"
+                        },
+                        "bedstPlaceret": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ],
+                          "description": "Højeste placeringsscore blandt scenarier med placeringer"
                         }
                       }
                     }
@@ -15265,8 +17069,36 @@
           "dagssats": {
             "type": "number"
           },
+          "maerker": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Særhåndteringsmærkerne (#156), nøglerne fra /saermaerker"
+          },
+          "returVaern": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "til_klargoering",
+              "karantaene",
+              null
+            ],
+            "description": "Hvor en retur går hen efter mærkerne, når intet procesflow passer (kernens værn)"
+          },
+          "frigivelseKraever": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Certificeringerne, frigivelsen kræver efter mærkerne"
+          },
           "asbest": {
-            "type": "boolean"
+            "type": "boolean",
+            "deprecated": true,
+            "description": "Forældet (#156): mærket asbest. Brug maerker"
           },
           "modelId": {
             "type": "integer"
@@ -17341,7 +19173,12 @@
           },
           "niveau": {
             "type": "integer",
-            "description": "1 = indretning (møbler og reoler). 2 zonering og 3 placering kommer med #86"
+            "enum": [
+              1,
+              2,
+              3
+            ],
+            "description": "Hvad scenariet handler om: 1 indretning (møbler og reoler), 2 zonering (områder får et formål og evner), 3 placering (tingene fordeles). Ikke en spærre: alle tre slags ændringer kan stå i et scenarie"
           },
           "version": {
             "type": "integer"
@@ -17512,6 +19349,25 @@
               "string",
               "null"
             ]
+          },
+          "kategori": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "En ting i fritekst: kategorien, placeringsreglerne ser"
+          },
+          "maerker": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "En ting i fritekst: særhåndteringsmærkerne, placeringsreglerne ser (#156)"
+          },
+          "asbest": {
+            "type": "boolean",
+            "deprecated": true,
+            "description": "Forældet (#156): mærket asbest i maerker"
           }
         }
       },
@@ -17613,7 +19469,8 @@
                     "gang",
                     "stikker_ud",
                     "vaegt",
-                    "krav"
+                    "krav",
+                    "plads"
                   ]
                 },
                 "tekst": {
@@ -17654,7 +19511,8 @@
                     "gang",
                     "stikker_ud",
                     "vaegt",
-                    "krav"
+                    "krav",
+                    "plads"
                   ]
                 },
                 "tekst": {
@@ -17695,7 +19553,8 @@
                     "gang",
                     "stikker_ud",
                     "vaegt",
-                    "krav"
+                    "krav",
+                    "plads"
                   ]
                 },
                 "tekst": {
@@ -17711,6 +19570,955 @@
                 "ny": {
                   "type": "boolean",
                   "description": "Findes ikke i det rigtige træ; kun nye advarsler stopper en vedtagelse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Maalsaetning": {
+        "type": "object",
+        "properties": {
+          "stilling": {
+            "type": "string",
+            "enum": [
+              "staaende",
+              "siddende"
+            ],
+            "description": "Grebshøjden: stående 750–1500 mm, siddende 550–1150 mm over gulvet"
+          },
+          "greb": {
+            "type": "object",
+            "properties": {
+              "fra_mm": {
+                "type": "integer"
+              },
+              "til_mm": {
+                "type": "integer"
+              }
+            }
+          },
+          "vaegte": {
+            "type": "object",
+            "properties": {
+              "pasform": {
+                "type": "number"
+              },
+              "hoejde": {
+                "type": "number"
+              },
+              "tyngde": {
+                "type": "number"
+              },
+              "sammen": {
+                "type": "number"
+              },
+              "zone": {
+                "type": "number"
+              },
+              "naerhed": {
+                "type": "number"
+              },
+              "krav": {
+                "type": "number"
+              },
+              "ro": {
+                "type": "number"
+              }
+            }
+          },
+          "tungKg": {
+            "type": "number",
+            "description": "Fra denne vægt er en ting tung (standard 8)"
+          },
+          "fyldgrad": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 1,
+            "description": "Hvor stor en del af en plads' bund fodaftrykkene må fylde (standard 0,85)"
+          },
+          "kraevKendteMaal": {
+            "type": "boolean",
+            "description": "Kun pladser, hvor målene afgør, at tingen passer"
+          },
+          "arbejdspunkt": {
+            "type": "integer",
+            "description": "En lokation (fx en bordplade): det hyppigt brugte placeres nær den. Håndethed udtrykkes ved at vælge arbejdspunktet i den side"
+          }
+        },
+        "description": "Interviewets mål (vægtene 0 til 10; standard pasform 1, hoejde 2, tyngde 2, sammen 2, zone 3, naerhed 1, krav 1, ro 0,5)"
+      },
+      "Zone": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "noegle": {
+            "type": "string",
+            "description": "Fast; placeringsregler kan pege på den som evnen zone { noegle }"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "formaal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evner": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "evne": {
+                  "type": "string"
+                },
+                "parametre": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "lokationer": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "sti": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Placering": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "slags": {
+            "type": "string",
+            "enum": [
+              "enhed",
+              "forbrugsvare"
+            ]
+          },
+          "tag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "forbrugsvareId": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "navn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lokationId": {
+            "type": "integer"
+          },
+          "sti": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fraLokationId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "En enheds hjemmeplads nu, en vares lokation, den flyttes fra"
+          },
+          "fra": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "frekvens": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "daglig",
+              "ugentlig",
+              "maanedlig",
+              "sjaelden",
+              null
+            ],
+            "description": "Brugsfrekvensen: afgør grebshøjde og nærhed. Ukendt regnes som månedlig (privat brug har ingen udtjek-log; den angives eller gættes)"
+          },
+          "gruppe": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "zone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maal": {
+            "type": "object",
+            "properties": {
+              "bredde_mm": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "dybde_mm": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "hoejde_mm": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            }
+          },
+          "vaegtKg": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "kilde": {
+            "type": "string",
+            "enum": [
+              "motor",
+              "haand"
+            ]
+          },
+          "af": {
+            "type": "string"
+          },
+          "opdateret": {
+            "type": "string"
+          }
+        }
+      },
+      "Placeringsforslag": {
+        "type": "object",
+        "properties": {
+          "scenarie": {
+            "$ref": "#/components/schemas/Scenarie"
+          },
+          "omraade": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "sti": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "score": {
+            "type": "number",
+            "description": "0 til 100: gennemsnittet over alle ting (en ting uden plads tæller 0)"
+          },
+          "placeret": {
+            "type": "integer"
+          },
+          "ialt": {
+            "type": "integer"
+          },
+          "maal": {
+            "type": "object",
+            "description": "Målsætningen, som motoren brugte"
+          },
+          "forslag": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "emne": {
+                  "type": "object",
+                  "properties": {
+                    "noegle": {
+                      "type": "string",
+                      "description": "«enhed:<tag>», «forbrugsvare:<id>», «model:<id>» eller «ting:<id>»"
+                    },
+                    "slags": {
+                      "type": "string",
+                      "enum": [
+                        "enhed",
+                        "forbrugsvare",
+                        "model",
+                        "ting"
+                      ]
+                    },
+                    "navn": {
+                      "type": "string"
+                    },
+                    "tag": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "forbrugsvareId": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "modelId": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "tingId": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "antal": {
+                      "type": "integer"
+                    },
+                    "fra": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "frekvens": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "daglig",
+                        "ugentlig",
+                        "maanedlig",
+                        "sjaelden",
+                        null
+                      ],
+                      "description": "Brugsfrekvensen: afgør grebshøjde og nærhed. Ukendt regnes som månedlig (privat brug har ingen udtjek-log; den angives eller gættes)"
+                    },
+                    "gruppe": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "zone": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "zoneKrav": {
+                      "type": "string"
+                    },
+                    "maal": {
+                      "type": "object",
+                      "properties": {
+                        "bredde_mm": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "dybde_mm": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "hoejde_mm": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      }
+                    },
+                    "vaegtKg": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "lokation": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "sti": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "planlagt": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "nu": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "description": "Hvor tingen står nu i scenariet"
+                },
+                "flyttes": {
+                  "type": "boolean"
+                },
+                "score": {
+                  "type": "number"
+                },
+                "dele": {
+                  "type": "object",
+                  "description": "Delscorerne (0 til 1) for de mål, der gælder for tingen: pasform, hoejde, tyngde, sammen, zone, naerhed, krav, ro"
+                },
+                "forklaring": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kode": {
+                        "type": "string",
+                        "description": "Til oversættelse: passer, maal_ukendt, i_greb, uden_for_greb, frekvens_gaettet, tung_lavt, tung_hoejt, sammen_samme, sammen_naer, sammen_langt, i_zone, uden_for_zone, naer, krav_bloedt, krav_opfyldt, bliver"
+                      },
+                      "tekst": {
+                        "type": "string",
+                        "description": "Forklaringen på dansk"
+                      },
+                      "v": {
+                        "type": "object",
+                        "description": "Værdierne i teksten"
+                      }
+                    }
+                  }
+                },
+                "usikker": {
+                  "type": "boolean",
+                  "description": "Målene kunne ikke afgøre, at tingen passer"
+                },
+                "placer": {
+                  "type": "object",
+                  "properties": {
+                    "enhed": {
+                      "type": "string",
+                      "description": "En rigtig enheds mærke (tag)"
+                    },
+                    "forbrugsvare": {
+                      "type": "integer",
+                      "description": "En forbrugsvares id"
+                    },
+                    "fra": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "description": "Kun forbrugsvare: lokationen, alt flyttes fra (null = kun tildel den nye). Uden: den eneste lokation, varen står på"
+                    },
+                    "model": {
+                      "type": "integer",
+                      "description": "En models id: bliver en planlagt ting på pladsen"
+                    },
+                    "antal": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Kun model"
+                    },
+                    "ting": {
+                      "type": "integer",
+                      "description": "En planlagt ting i scenariet (ikke en planlagt lokation)"
+                    },
+                    "kategori": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Kun en forbrugsvare og en ting uden model: kategorien, placeringsreglerne ser (en enhed og en model har deres egen; ellers 422)"
+                    },
+                    "maerker": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 100
+                      },
+                      "maxItems": 20,
+                      "description": "Kun en forbrugsvare og en ting uden model: særhåndteringsmærkerne, placeringsreglerne ser (#156; nøglerne fra /saermaerker, navnet går også; erstatter listen)"
+                    },
+                    "asbest": {
+                      "type": "boolean",
+                      "deprecated": true,
+                      "description": "Forældet (#156): true lægger mærket asbest til maerker, false tager det af"
+                    },
+                    "lokationId": {
+                      "type": "integer",
+                      "description": "Pladsen i scenariet (en rigtig, der ikke fjernes, eller en planlagt i samme scenarie)"
+                    },
+                    "fjern": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ],
+                      "description": "Fjern enhedens eller varens placering fra kladden"
+                    },
+                    "frekvens": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "daglig",
+                        "ugentlig",
+                        "maanedlig",
+                        "sjaelden",
+                        null
+                      ],
+                      "description": "Brugsfrekvensen: afgør grebshøjde og nærhed. Ukendt regnes som månedlig (privat brug har ingen udtjek-log; den angives eller gættes)"
+                    },
+                    "gruppe": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Hører sammen med (fx «skruer»): emner i samme gruppe placeres tæt i træet"
+                    },
+                    "zone": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Zonens nøgle, emnet hører til"
+                    },
+                    "zoneKrav": {
+                      "type": "string",
+                      "enum": [
+                        "skal",
+                        "boer"
+                      ],
+                      "description": "skal = et hårdt krav; boer (standard) = et blødt mål"
+                    },
+                    "vaegtKg": {
+                      "type": [
+                        "number",
+                        "null"
+                      ],
+                      "minimum": 0,
+                      "description": "Pr. stk; tæller mod bæreevnen, og tunge ting lægges lavt"
+                    },
+                    "maal": {
+                      "type": "object",
+                      "properties": {
+                        "bredde_mm": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "dybde_mm": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "hoejde_mm": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      },
+                      "description": "Mål i mm; går over modellens"
+                    }
+                  },
+                  "description": "Linjen til scenario_placer"
+                }
+              }
+            }
+          },
+          "ikkePlaceret": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "emne": {
+                  "type": "object",
+                  "properties": {
+                    "noegle": {
+                      "type": "string",
+                      "description": "«enhed:<tag>», «forbrugsvare:<id>», «model:<id>» eller «ting:<id>»"
+                    },
+                    "slags": {
+                      "type": "string",
+                      "enum": [
+                        "enhed",
+                        "forbrugsvare",
+                        "model",
+                        "ting"
+                      ]
+                    },
+                    "navn": {
+                      "type": "string"
+                    },
+                    "tag": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "forbrugsvareId": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "modelId": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "tingId": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "antal": {
+                      "type": "integer"
+                    },
+                    "fra": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "frekvens": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "daglig",
+                        "ugentlig",
+                        "maanedlig",
+                        "sjaelden",
+                        null
+                      ],
+                      "description": "Brugsfrekvensen: afgør grebshøjde og nærhed. Ukendt regnes som månedlig (privat brug har ingen udtjek-log; den angives eller gættes)"
+                    },
+                    "gruppe": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "zone": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "zoneKrav": {
+                      "type": "string"
+                    },
+                    "maal": {
+                      "type": "object",
+                      "properties": {
+                        "bredde_mm": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "dybde_mm": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "hoejde_mm": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      }
+                    },
+                    "vaegtKg": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "grunde": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kode": {
+                        "type": "string",
+                        "enum": [
+                          "spaerret",
+                          "fast_plads",
+                          "regel",
+                          "krav",
+                          "zone",
+                          "passer_ikke",
+                          "maal_ukendt",
+                          "fuld",
+                          "vaegt",
+                          "plads",
+                          "kan_ikke_rumme"
+                        ]
+                      },
+                      "tekst": {
+                        "type": "string"
+                      },
+                      "antal": {
+                        "type": "integer",
+                        "description": "Pladser med den grund"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "vurderet": {
+            "type": "object",
+            "properties": {
+              "emner": {
+                "type": "integer"
+              },
+              "kandidater": {
+                "type": "integer"
+              },
+              "par": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "Placeringsvurdering": {
+        "type": "object",
+        "properties": {
+          "scenarie": {
+            "$ref": "#/components/schemas/Scenarie"
+          },
+          "score": {
+            "type": "number"
+          },
+          "vurderinger": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "emne": {
+                  "type": "object",
+                  "properties": {
+                    "noegle": {
+                      "type": "string",
+                      "description": "«enhed:<tag>», «forbrugsvare:<id>», «model:<id>» eller «ting:<id>»"
+                    },
+                    "slags": {
+                      "type": "string",
+                      "enum": [
+                        "enhed",
+                        "forbrugsvare",
+                        "model",
+                        "ting"
+                      ]
+                    },
+                    "navn": {
+                      "type": "string"
+                    },
+                    "tag": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "forbrugsvareId": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "modelId": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "tingId": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "antal": {
+                      "type": "integer"
+                    },
+                    "fra": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "frekvens": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "daglig",
+                        "ugentlig",
+                        "maanedlig",
+                        "sjaelden",
+                        null
+                      ],
+                      "description": "Brugsfrekvensen: afgør grebshøjde og nærhed. Ukendt regnes som månedlig (privat brug har ingen udtjek-log; den angives eller gættes)"
+                    },
+                    "gruppe": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "zone": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "zoneKrav": {
+                      "type": "string"
+                    },
+                    "maal": {
+                      "type": "object",
+                      "properties": {
+                        "bredde_mm": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "dybde_mm": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "hoejde_mm": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      }
+                    },
+                    "vaegtKg": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "lokation": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "sti": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "score": {
+                  "type": "number"
+                },
+                "dele": {
+                  "type": "object",
+                  "description": "Delscorerne (0 til 1) for de mål, der gælder for tingen: pasform, hoejde, tyngde, sammen, zone, naerhed, krav, ro"
+                },
+                "forklaring": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kode": {
+                        "type": "string",
+                        "description": "Til oversættelse: passer, maal_ukendt, i_greb, uden_for_greb, frekvens_gaettet, tung_lavt, tung_hoejt, sammen_samme, sammen_naer, sammen_langt, i_zone, uden_for_zone, naer, krav_bloedt, krav_opfyldt, bliver"
+                      },
+                      "tekst": {
+                        "type": "string",
+                        "description": "Forklaringen på dansk"
+                      },
+                      "v": {
+                        "type": "object",
+                        "description": "Værdierne i teksten"
+                      }
+                    }
+                  }
+                },
+                "brud": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kode": {
+                        "type": "string"
+                      },
+                      "tekst": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "usikker": {
+                  "type": "boolean"
                 }
               }
             }
@@ -17819,7 +20627,30 @@
             "type": "string"
           },
           "kategori": {
-            "type": "string"
+            "type": "string",
+            "description": "Modellens kategori; en vares gruppenavn (#124)"
+          },
+          "gruppe": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "noegle": {
+                    "type": "string"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "egetNavn": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Varens forbrugsgruppe (#124); null for en model"
           },
           "fabrikat": {
             "type": [
@@ -17906,6 +20737,176 @@
             "description": "Varens enhed (stk, m …)"
           }
         }
+      },
+      "Feltsaet": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "lagerId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "null = alle enheder på installationen; ellers enhederne på ét lager"
+          },
+          "noegle": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,47}$"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "beskrivelse": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "felter": {
+            "type": "object",
+            "description": "Skemaet som Kategoriskabelon.felter. Et felt står kun i ét aktivt sæt, en enhed ser"
+          },
+          "kilde": {
+            "type": "string",
+            "enum": [
+              "indbygget",
+              "bruger"
+            ]
+          },
+          "aktiv": {
+            "type": "boolean"
+          }
+        },
+        "description": "Felter på enhederne (HomeBox-stil, men typet): alle enheder på installationen eller et lager har felterne i de aktive sæt"
+      },
+      "Forbrugsgruppe": {
+        "type": "object",
+        "properties": {
+          "noegle": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,47}$",
+            "description": "Fast; det, varen og e-conomic-mappingen peger på"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "egetNavn": {
+            "type": "boolean",
+            "description": "false: en indbygget med standardnavnet (appen viser det på brugerens sprog)"
+          },
+          "kilde": {
+            "type": "string",
+            "enum": [
+              "indbygget",
+              "bruger"
+            ]
+          },
+          "aktiv": {
+            "type": "boolean",
+            "description": "false: kan ikke vælges til en ny eller rettet vare; varerne i den bliver"
+          },
+          "fremhaevet": {
+            "type": "boolean",
+            "description": "Vises under «Ofte brugt» i Forbrug"
+          },
+          "sortering": {
+            "type": "integer"
+          }
+        },
+        "description": "En forbrugsvares gruppe (installationens liste): de indbyggede forbrug, vaerne, arbtoj og vaerktoej og egne"
+      },
+      "Saermaerke": {
+        "type": "object",
+        "properties": {
+          "noegle": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,47}$",
+            "description": "Fast; det, enheder, modeller og hvem.maerker peger på"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "egetNavn": {
+            "type": "boolean",
+            "description": "false: et indbygget med standardnavnet (appen viser det på brugerens sprog)"
+          },
+          "beskrivelse": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retur": {
+            "type": "string",
+            "enum": [
+              "til_klargoering",
+              "karantaene",
+              "ingen"
+            ],
+            "description": "Kernens værn ved en retur, når intet procesflow passer: til klargøring, i karantæne, eller intet (kun reglerne og flowene). Spærrer også en modtagelse af udstyret, mens det er ude"
+          },
+          "certificering": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Den, der frigiver en enhed med mærket, bekræfter at have den (certificeret: true), med og uden procesflow"
+          },
+          "kilde": {
+            "type": "string",
+            "enum": [
+              "indbygget",
+              "bruger"
+            ]
+          },
+          "aktiv": {
+            "type": "boolean",
+            "description": "false: kan ikke sættes på nye enheder og modeller; enheder, der har det, følger stadig værnet"
+          },
+          "laast": {
+            "type": "boolean",
+            "description": "Låst af driften (LAGER_MODULER, det forældede asbest=til|fra)"
+          },
+          "sortering": {
+            "type": "integer"
+          },
+          "regler": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "noegle": {
+                  "type": "string"
+                },
+                "navn": {
+                  "type": "string"
+                },
+                "slags": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Installationens aktive placeringsregler for mærket (zonerne)"
+          },
+          "flows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "noegle": {
+                  "type": "string"
+                },
+                "navn": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Installationens aktive returflows for mærket (trinene)"
+          }
+        },
+        "description": "Et særhåndteringsmærke (installationens liste): det indbyggede asbest og egne"
       },
       "Udlaan": {
         "type": "object",
