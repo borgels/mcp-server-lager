@@ -2428,7 +2428,7 @@
             "schema": {
               "type": "integer"
             },
-            "description": "Kortets id (KB-<id> på etiketten)"
+            "description": "Kortets række-id (id i listen), ikke etikettens kode: KB-… er de første 8 tegn af det offentlige id. Find id'et ud fra kode i /ansvarlig/kanban"
           }
         ],
         "responses": {
@@ -2463,7 +2463,7 @@
             "schema": {
               "type": "integer"
             },
-            "description": "Kortets id (KB-<id> på etiketten)"
+            "description": "Kortets række-id (id i listen), ikke etikettens kode: KB-… er de første 8 tegn af det offentlige id. Find id'et ud fra kode i /ansvarlig/kanban"
           }
         ],
         "requestBody": {
@@ -2524,7 +2524,7 @@
             "schema": {
               "type": "integer"
             },
-            "description": "Kortets id (KB-<id> på etiketten)"
+            "description": "Kortets række-id (id i listen), ikke etikettens kode: KB-… er de første 8 tegn af det offentlige id. Find id'et ud fra kode i /ansvarlig/kanban"
           }
         ],
         "responses": {
@@ -2568,7 +2568,7 @@
             "schema": {
               "type": "integer"
             },
-            "description": "Kortets id (KB-<id> på etiketten)"
+            "description": "Kortets række-id (id i listen), ikke etikettens kode: KB-… er de første 8 tegn af det offentlige id. Find id'et ud fra kode i /ansvarlig/kanban"
           }
         ],
         "responses": {
@@ -5121,6 +5121,9 @@
           },
           "404": {
             "description": "Reglen findes ikke på dine lagre"
+          },
+          "409": {
+            "description": "Reglen dækker asbestudstyr, ændringen slår den fra, retter den væk fra asbest eller gør den løsere, og bekraeft mangler"
           }
         }
       }
@@ -5540,6 +5543,10 @@
                   },
                   "aktiv": {
                     "type": "boolean"
+                  },
+                  "bekraeft": {
+                    "type": "boolean",
+                    "description": "Påkrævet for et flow for hele installationen (lagerId: null), der tager asbestreturer (start.hvem.asbest): det kan gå forud for det indbyggede asbestflow (409 ellers)"
                   }
                 },
                 "required": [
@@ -5558,7 +5565,7 @@
             "description": "{ flow }"
           },
           "409": {
-            "description": "Nøglen findes"
+            "description": "Nøglen findes, eller et flow for hele installationen dækker asbestudstyr, og bekraeft mangler"
           },
           "422": {
             "description": "Ugyldigt flow"

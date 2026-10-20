@@ -32,9 +32,11 @@ export type Operation = {
   parameters?: Parameter[];
   requestBody?: { required?: boolean; content?: { 'application/json'?: { schema?: JsonSkema } } };
   /** Lagerets egen stillingtagen: `vaerktoej: false` = ingen værktøj, med grunden. */
-  'x-mcp'?: { vaerktoej?: boolean; grund?: string };
+  'x-mcp'?: XMcp;
 };
-type PathItem = Partial<Record<Metode, Operation>> & { 'x-moduler'?: string[] };
+/** `vaerktoej` kan stå som boolean eller tekst («false»); begge tæller. */
+export type XMcp = { vaerktoej?: boolean | string; grund?: string };
+type PathItem = Partial<Record<Metode, Operation>> & { 'x-moduler'?: string[]; 'x-mcp'?: XMcp };
 export type OpenApiDoc = { info: { version: string }; paths: Record<string, PathItem>; components?: { schemas?: Record<string, JsonSkema> } };
 
 export const SPEC = snapshot as unknown as OpenApiDoc;
@@ -74,10 +76,25 @@ export function alleOperationer(doc: OpenApiDoc = SPEC): OpNoegle[] {
 export function udenVaerktoejIKortet(doc: OpenApiDoc = SPEC): Partial<Record<OpNoegle, string>> {
   const ud: Partial<Record<OpNoegle, string>> = {};
   for (const op of alleOperationer(doc)) {
-    const x = operation(op, doc)?.['x-mcp'];
-    if (x?.vaerktoej === false) ud[op] = x.grund?.trim() || 'Lageret har markeret operationen som uden værktøj (x-mcp).';
+    const grund = udenVaerktoejGrund(op, doc);
+    if (grund !== undefined) ud[op] = grund;
   }
   return ud;
+}
+
+const falsk = (v: unknown) => v === false || (typeof v === 'string' && v.trim().toLowerCase() === 'false');
+
+/**
+ * Grunden, hvis operationen eller dens sti er markeret uden værktøj (x-mcp på
+ * operationen eller på stien; `vaerktoej: false` eller «false»); ellers undefined.
+ * Markeringen på operationen vinder over stiens grund, men begge kan lukke.
+ */
+export function udenVaerktoejGrund(op: OpNoegle, doc: OpenApiDoc = SPEC): string | undefined {
+  const paaOp = operation(op, doc)?.['x-mcp'];
+  const paaSti = doc.paths[splitOp(op).sti]?.['x-mcp'];
+  const x = falsk(paaOp?.vaerktoej) ? paaOp : falsk(paaSti?.vaerktoej) ? paaSti : undefined;
+  if (!x) return undefined;
+  return (typeof x.grund === 'string' && x.grund.trim()) || 'Lageret har markeret operationen som uden værktøj (x-mcp).';
 }
 
 /** De moduler, stien kræver (x-moduler fra backendens rutekort). */
