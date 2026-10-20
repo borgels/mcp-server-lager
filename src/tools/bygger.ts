@@ -70,6 +70,8 @@ function begraenset(s: JsonSkema, begraens: Record<string, string[]>, doc: OpenA
 
 function planFor(spec: ToolSpec, op: OpNoegle, doc: OpenApiDoc): { plan: Plan; felter: Record<string, { skema: z.ZodType; paakraevet: boolean; beskrivelse?: string }> } {
   const o = kraevOperation(op, doc);
+  // Lagerets egen stillingtagen (x-mcp) går forud for kataloget.
+  if (o['x-mcp']?.vaerktoej === false) throw new Error(`${spec.navn}: ${op} er markeret uden værktøj i kortet (x-mcp): ${o['x-mcp'].grund ?? ''}`);
   const skjul = new Set(spec.skjul ?? []);
   const fast = spec.fast ?? {};
   const felter: Record<string, { skema: z.ZodType; paakraevet: boolean; beskrivelse?: string }> = {};

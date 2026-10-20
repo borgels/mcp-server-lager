@@ -170,7 +170,7 @@
     },
     "/ansvarlig/afgoer": {
       "post": {
-        "summary": "Afgør karantæne eller klargøring: frigiv til lageret, eller kassér",
+        "summary": "Afgør karantæne eller klargøring: frigiv til lageret, eller kassér. Står enheden i et procesflow (#87), er frigivelsen flowets sidste trin: forløbet skal stå på det (409), og trinnets tjekliste og certificering gælder",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -202,6 +202,15 @@
                   },
                   "note": {
                     "type": "string"
+                  },
+                  "tjekket": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "certificeret": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -511,7 +520,7 @@
         }
       },
       "post": {
-        "summary": "Opret enheder; antal > 1 giver fortløbende tags (og så ingen tag eller serienummer)",
+        "summary": "Opret enheder; antal > 1 giver fortløbende tags (og så ingen tag eller serienummer). Pladsen tjekkes mod placeringsreglerne (409 med grunden)",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -581,6 +590,9 @@
         "responses": {
           "201": {
             "description": "{ enheder, tags }"
+          },
+          "409": {
+            "description": "Pladsen bryder placeringsreglerne (fx asbestudstyr på en almindelig hylde)"
           }
         }
       }
@@ -605,7 +617,7 @@
         }
       },
       "put": {
-        "summary": "Ret en enheds stamdata; null sletter et felt. garantiTil bliver en garantiopgave i vedligehold (når modulet er til)",
+        "summary": "Ret en enheds stamdata; null sletter et felt. garantiTil bliver en garantiopgave i vedligehold (når modulet er til). En ny plads tjekkes som «sæt på plads»: placeringsreglerne med det rettede asbestmærke og den rettede model, og forløbets trin (409 med grunden); samme plads igen tjekkes ikke. Rettes asbestmærket eller modellen, så enheden står, hvor reglerne ikke tillader, gemmes rettelsen, og advarsel siger det (ellers null)",
         "parameters": [
           {
             "name": "tag",
@@ -662,7 +674,10 @@
         },
         "responses": {
           "200": {
-            "description": "{ enhed }"
+            "description": "{ enhed, advarsel }"
+          },
+          "409": {
+            "description": "Den nye plads bryder placeringsreglerne eller forløbets trin"
           }
         }
       }
@@ -1249,7 +1264,7 @@
         }
       },
       "post": {
-        "summary": "Ny forbrugsvare med første pris; med kategoriskabelon (#57) også egenskaberne",
+        "summary": "Ny forbrugsvare med første pris; med kategoriskabelon (#57) også egenskaberne. Går varenummeret igen i selskabet, rettes den vare i stedet. Står en stregkode allerede på en vare i selskabet, er det 409 med { vare: { id, navn, aktiv }, stregkode }, og intet ændres (heller ikke en vare, der er slået fra); peger varenummer og stregkode på to forskellige varer, er det også 409",
         "requestBody": {
           "required": true,
           "content": {
@@ -1257,6 +1272,13 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "stregkoder": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "EAN/GTIN (#53), der lægges til varen"
+                  },
                   "lagerId": {
                     "type": "integer"
                   },
@@ -1694,6 +1716,78 @@
         }
       }
     },
+    "/ansvarlig/forbrugsvarer/{id}/stregkoder": {
+      "put": {
+        "operationId": "lager_ansvarlig_forbrugsvare_stregkoder",
+        "summary": "Sæt forbrugsvarens stregkoder: listen er hele sættet ([] fjerner alle). Samme kode i to former er én; højst 20",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "stregkoder": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "EAN-13, EAN-8, UPC-A, UPC-E eller GTIN-14 med rigtigt kontrolciffer"
+                  }
+                },
+                "required": [
+                  "stregkoder"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ stregkoder }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "stregkoder": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[0-9]{8,14}$"
+                      },
+                      "description": "EAN/GTIN i visningsform: EAN-8, EAN-13 (også en UPC-A med 0 foran) eller GTIN-14"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Ikke lageransvarlig på varens selskab"
+          },
+          "404": {
+            "description": "Varen findes ikke for kalderen (også et andet selskabs)"
+          },
+          "409": {
+            "description": "En kode står på en anden vare i selskabet: { error, vare: { id, navn, aktiv }, stregkode }"
+          },
+          "422": {
+            "description": "Ikke en EAN/GTIN, forkert kontrolciffer, eller over 20"
+          }
+        }
+      }
+    },
     "/ansvarlig/forbrugsvarer/modtag": {
       "post": {
         "summary": "Modtag en levering; bestilte varer lægges til side til dem, der venter",
@@ -1756,6 +1850,13 @@
                             },
                             "enhed": {
                               "type": "string"
+                            },
+                            "stregkoder": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "description": "EAN/GTIN (#53), entydige. Står en af dem allerede på en vare i selskabet, er svaret 409 med { linje, vare: { id, navn, aktiv }, stregkode }, og intet skrives; send linjen med forbrugsvareId"
                             }
                           }
                         },
@@ -2144,7 +2245,7 @@
     },
     "/ansvarlig/intern": {
       "post": {
-        "summary": "Lagerarbejde uden beregning: til_service, udlaan eller flyt (plads)",
+        "summary": "Lagerarbejde uden beregning: til_service, udlaan eller flyt (plads). En flytning tjekker placeringsreglerne og forløbets trin for enheden og sættets dele, der følger med; et brud står i afvist med grunden",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -2203,6 +2304,408 @@
         "responses": {
           "201": {
             "description": "{ registreret, afvist, ukendte }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/kanban": {
+      "x-moduler": [
+        "kanban"
+      ],
+      "get": {
+        "operationId": "lager_ansvarlig_kanban",
+        "summary": "Kanbankortene, der ikke er kaldt tilbage, med status (åben genbestilling, scan): ?vare= for én vare på dine lagre, ellers ?lager=. Kun den lageransvarlige. Intet token",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "vare",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Kun kortene for denne forbrugsvare, på alle dine lagre"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ lager?, kort: Kanbankort[] }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kort": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Kanbankort"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "lager_ansvarlig_kanban_opret",
+        "summary": "Et nyt kanbankort til en forbrugsvare på en lokation, der står på varen (forbrugsbeholdninger). Flere kort til samme sted er tilladt (to kasser). Etiketten trykkes fra appen",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "forbrugsvareId": {
+                    "type": "integer"
+                  },
+                  "lokationId": {
+                    "type": "integer"
+                  },
+                  "antal": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000
+                  }
+                },
+                "required": [
+                  "forbrugsvareId",
+                  "lokationId",
+                  "antal"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ kort: Kanbankort }"
+          },
+          "404": {
+            "description": "Varen eller lokationen findes ikke på dine lagre"
+          },
+          "409": {
+            "description": "Varen er slået fra, lokationen er ikke aktiv, eller varen står ikke på lokationen"
+          },
+          "422": {
+            "description": "Ukendt felt eller forkert antal"
+          }
+        }
+      }
+    },
+    "/ansvarlig/kanban/{id}": {
+      "x-moduler": [
+        "kanban"
+      ],
+      "get": {
+        "operationId": "lager_ansvarlig_kanban_et",
+        "summary": "Ét kanbankort (også et, der er kaldt tilbage)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Kortets id (KB-<id> på etiketten)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ kort: Kanbankort }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kort": {
+                      "$ref": "#/components/schemas/Kanbankort"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ikke et kort på et lager, du er ansvarlig for"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "lager_ansvarlig_kanban_ret",
+        "summary": "Ret kortets antal. En åben genbestilling beholder sit",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Kortets id (KB-<id> på etiketten)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "antal": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100000
+                  }
+                },
+                "required": [
+                  "antal"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ kort: Kanbankort }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kort": {
+                      "$ref": "#/components/schemas/Kanbankort"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ikke et kort på et lager, du er ansvarlig for"
+          },
+          "409": {
+            "description": "Kortet er kaldt tilbage"
+          },
+          "422": {
+            "description": "Forkert antal"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "lager_ansvarlig_kanban_tilbagekald",
+        "summary": "Kald kortet tilbage: det trykte kort virker ikke mere. Idempotent; en åben genbestilling bliver stående",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Kortets id (KB-<id> på etiketten)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ kort: Kanbankort }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kort": {
+                      "$ref": "#/components/schemas/Kanbankort"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ikke et kort på et lager, du er ansvarlig for"
+          }
+        }
+      }
+    },
+    "/ansvarlig/kanban/{id}/link": {
+      "x-moduler": [
+        "kanban"
+      ],
+      "get": {
+        "operationId": "lager_ansvarlig_kanban_link",
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "Kortets adresse bærer tokenet, en hemmelighed på et trykt kort; den skal på en NFC-tag eller en skærm fra appen, ikke ind i en samtale."
+        },
+        "summary": "Kortets adresse og QR ({ link: { url, qr } }), til en NFC-tag på kassen. no-store",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Kortets id (KB-<id> på etiketten)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ link: { url, qr } }; qr er en data:-adresse med QR-koden som SVG"
+          },
+          "404": {
+            "description": "Ikke et kort på et lager, du er ansvarlig for"
+          },
+          "409": {
+            "description": "Kortet er kaldt tilbage"
+          },
+          "503": {
+            "description": "Kanbankort er ikke sat op (LAGER_KANBAN_SECRET)"
+          }
+        }
+      }
+    },
+    "/ansvarlig/kanban/etiketter": {
+      "x-moduler": [
+        "kanban"
+      ],
+      "get": {
+        "operationId": "lager_ansvarlig_kanban_etiketter",
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "En fil (PDF eller PNG) med kortenes token i QR-koderne; trykkes fra appen."
+        },
+        "summary": "Kortenes etiketter som PDF eller PNG efter en lokationsskabelon (#42); uden skabelon installationens A4-ark. Kun kort, der virker, på lageret. no-store",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "kort",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Komma: kortenes id'er"
+          },
+          {
+            "name": "skabelon",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pdf",
+                "png"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF eller PNG"
+          },
+          "404": {
+            "description": "Ingen af kortene findes"
+          },
+          "422": {
+            "description": "Ingen kort, over 240, eller PNG af flere end én"
+          },
+          "503": {
+            "description": "Kanbankort er ikke sat op"
+          }
+        }
+      },
+      "post": {
+        "operationId": "lager_ansvarlig_kanban_print",
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "Trykker kortenes token på en label-printer; det gør den lageransvarlige fra appen."
+        },
+        "summary": "Print kortene på en label-service (LAGER_ETIKETPRINTERE), højst 50. Samme Idempotency-Key printer ikke igen",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "printer": {
+                    "type": "string"
+                  },
+                  "lager": {
+                    "type": "integer"
+                  },
+                  "kort": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "required": [
+                  "printer",
+                  "kort"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ printer, printet }"
+          },
+          "404": {
+            "description": "Printeren eller kortene findes ikke"
+          },
+          "502": {
+            "description": "Printeren svarede ikke eller med en fejl"
           }
         }
       }
@@ -2337,7 +2840,7 @@
     "/ansvarlig/kodeskabelon": {
       "get": {
         "operationId": "lager_ansvarlig_kodeskabelon",
-        "summary": "Lagerets kodeskabelon: null = frie koder, zone-reol-hylde = A-12-3",
+        "summary": "Lagerets kodeskabelon: null = frie koder, zone-reol-hylde = fx A-12-3",
         "parameters": [
           {
             "name": "lager",
@@ -2394,7 +2897,7 @@
     },
     "/ansvarlig/koe": {
       "get": {
-        "summary": "Det, der kræver afgørelse: ukendte mærker, karantæne, klargøring, afstemning",
+        "summary": "Det, der kræver afgørelse: ukendte mærker, karantæne, klargøring (med procesforløbet, når modulet procesflows er til), afstemning",
         "parameters": [
           {
             "name": "lager",
@@ -2472,11 +2975,15 @@
                         "items": {
                           "$ref": "#/components/schemas/Skabelonbarn"
                         }
+                      },
+                      "parametre": {
+                        "type": "object",
+                        "description": "Kun med skabelon: værdier til skabelonens parametre { navn: værdi } (se Skabelon.parametre); resten er standarderne. Et skum skåret efter værktøjet tager fx { modeller: [12, 12, 15] }"
                       }
                     }
                   }
                 ],
-                "description": "type skal med, medmindre skabelon er sat; boern (kun med skabelon) erstatter skabelonens børn, fx et skab med andre skuffer eller en reol med hylder i andre højder"
+                "description": "type skal med, medmindre skabelon er sat; boern (kun med skabelon) erstatter skabelonens børn, fx et skab med andre skuffer eller en reol med hylder i andre højder. En indbygget skabelon, der er slået fra på lageret, er 422"
               }
             }
           }
@@ -3328,6 +3835,84 @@
         }
       }
     },
+    "/ansvarlig/modeller/{id}/maal": {
+      "put": {
+        "operationId": "lager_ansvarlig_model_maal",
+        "summary": "Modellens mål i hele mm, som tingen ligger (#56), og valgfrit et omrids set oppefra til en skumudskæring. Felterne, der er med, erstattes; null fjerner et mål. Bruges af lager_find_plads, lager_lokation_passer og skum skåret efter værktøjet",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "bredde_mm": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 1,
+                    "description": "Bredde (x)"
+                  },
+                  "dybde_mm": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 1,
+                    "description": "Dybde (y)"
+                  },
+                  "hoejde_mm": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 1,
+                    "description": "Højde (z)"
+                  },
+                  "omrids": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "description": "Polygon [[x, y], …] fra modellens bageste venstre hjørne, inden for bredde × dybde"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ model } med maal"
+          },
+          "404": {
+            "description": "Modellen findes ikke for kalderen"
+          },
+          "422": {
+            "description": "Et mål eller omridset er ugyldigt"
+          }
+        }
+      }
+    },
     "/ansvarlig/modeller/{id}/pakkeliste": {
       "get": {
         "summary": "Pakkelisten for en sætmodel",
@@ -3397,7 +3982,7 @@
     },
     "/ansvarlig/modtag": {
       "post": {
-        "summary": "Registrér en enhed på lageret med hjemmeplads",
+        "summary": "Registrér en enhed på lageret med hjemmeplads. Pladsen tjekkes mod placeringsreglerne (409 med grunden); en enhed i karantæne eller til klargøring frigives først (409), og asbestudstyr, der er ude, afleveres i stedet (409). Sætter modtagelsen asbestmærket, tjekkes også den plads, enheden bliver stående på. En solgt asbestenhed går til klargøring. asbest: false fjerner ikke et asbestmærke (det rettes under stamdata)",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -3443,6 +4028,9 @@
         "responses": {
           "201": {
             "description": "{ enhed }"
+          },
+          "409": {
+            "description": "Pladsen bryder placeringsreglerne, enheden er spærret, eller asbestudstyr står ude"
           }
         }
       }
@@ -3750,7 +4338,7 @@
     "/ansvarlig/optaelling/{id}/afgoer": {
       "post": {
         "summary": "Afgør én afvigelse i optællingen",
-        "description": "slags: savnet | hos_person (personId, projektId) | kasseret (note) | oprettet (modelId) | ikke_vores | plads_flyttet | ok. Afgørelsen udføres først, når optællingen lukkes.",
+        "description": "slags: savnet | hos_person (personId, projektId) | kasseret (note) | oprettet (modelId) | ikke_vores | plads_flyttet | ok. Afgørelsen udføres først, når optællingen lukkes. plads_flyttet tjekker den nye hjemmeplads mod placeringsreglerne (409 med grunden; så er svaret ok, og enheden flyttes hjem).",
         "parameters": [
           {
             "name": "id",
@@ -4346,6 +4934,197 @@
         }
       }
     },
+    "/ansvarlig/placeringsregler": {
+      "post": {
+        "operationId": "lager_ansvarlig_placeringsregel_opret",
+        "summary": "Ny placeringsregel. Med lagerId lagerets egen (lageransvarlig dér); lagerId: null = hele installationens (lageransvarlig på alle lagre). Stederne skal være evnetyper, ejeren kan se",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "noegle": {
+                    "type": "string"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "slags": {
+                    "type": "string",
+                    "enum": [
+                      "skal_staa",
+                      "kun"
+                    ]
+                  },
+                  "hvem": {
+                    "type": "object",
+                    "properties": {
+                      "asbest": {
+                        "type": "boolean"
+                      },
+                      "kategorier": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "description": "Hvem det gælder: enhedens asbestmærke og modellens kategori. Udeladt = alle"
+                  },
+                  "steder": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "evne": {
+                          "type": "string",
+                          "description": "En evnetypes nøgle (fx proceszone, saerzone, udsugning)"
+                        },
+                        "parametre": {
+                          "type": "object",
+                          "description": "De værdier, evnen skal have; et listefelt skal indeholde værdien"
+                        }
+                      },
+                      "required": [
+                        "evne"
+                      ]
+                    }
+                  },
+                  "grund": {
+                    "type": "string"
+                  },
+                  "sortering": {
+                    "type": "integer"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "noegle",
+                  "navn",
+                  "slags",
+                  "steder",
+                  "grund"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ regel }"
+          },
+          "409": {
+            "description": "Nøglen findes"
+          },
+          "422": {
+            "description": "Ugyldig regel, eller et sted med en ukendt evne eller værdi"
+          }
+        }
+      }
+    },
+    "/ansvarlig/placeringsregler/{id}": {
+      "patch": {
+        "operationId": "lager_ansvarlig_placeringsregel_ret",
+        "summary": "Ret en placeringsregel eller slå den fra (aktiv: false), også de indbyggede (fx asbestzonerne). Nøglen ligger fast",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": "string"
+                  },
+                  "slags": {
+                    "type": "string",
+                    "enum": [
+                      "skal_staa",
+                      "kun"
+                    ]
+                  },
+                  "hvem": {
+                    "type": "object",
+                    "properties": {
+                      "asbest": {
+                        "type": "boolean"
+                      },
+                      "kategorier": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "description": "Hvem det gælder: enhedens asbestmærke og modellens kategori. Udeladt = alle"
+                  },
+                  "steder": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "evne": {
+                          "type": "string",
+                          "description": "En evnetypes nøgle (fx proceszone, saerzone, udsugning)"
+                        },
+                        "parametre": {
+                          "type": "object",
+                          "description": "De værdier, evnen skal have; et listefelt skal indeholde værdien"
+                        }
+                      },
+                      "required": [
+                        "evne"
+                      ]
+                    }
+                  },
+                  "grund": {
+                    "type": "string"
+                  },
+                  "sortering": {
+                    "type": "integer"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  },
+                  "bekraeft": {
+                    "type": "boolean",
+                    "description": "Påkrævet for at slå en regel, der dækker asbestudstyr, fra eller rette den væk fra asbest (409 ellers)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ regel }"
+          },
+          "404": {
+            "description": "Reglen findes ikke på dine lagre"
+          }
+        }
+      }
+    },
     "/ansvarlig/pladser": {
       "get": {
         "summary": "Zoner og pladser (Zone-Reol-Hylde) med antal enheder; standardzonerne oprettes",
@@ -4608,6 +5387,489 @@
         "responses": {
           "200": {
             "description": "{ priser }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/procesflows": {
+      "x-moduler": [
+        "procesflows"
+      ],
+      "post": {
+        "operationId": "lager_ansvarlig_procesflow_opret",
+        "summary": "Nyt procesflow. Med lagerId lagerets eget; lagerId: null = hele installationens (lageransvarlig på alle lagre). Installationens flows går altid forud for et lagers egne ved en retur",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "noegle": {
+                    "type": "string"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "beskrivelse": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "karantaene",
+                      "til_klargoering"
+                    ]
+                  },
+                  "start": {
+                    "type": "object",
+                    "properties": {
+                      "ved": {
+                        "type": "string",
+                        "enum": [
+                          "retur",
+                          "manuel"
+                        ]
+                      },
+                      "skadet": {
+                        "type": "boolean"
+                      },
+                      "hvem": {
+                        "type": "object",
+                        "properties": {
+                          "asbest": {
+                            "type": "boolean"
+                          },
+                          "kategorier": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "description": "Hvem det gælder: enhedens asbestmærke og modellens kategori. Udeladt = alle"
+                      }
+                    }
+                  },
+                  "trin": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "noegle": {
+                          "type": "string"
+                        },
+                        "navn": {
+                          "type": "string"
+                        },
+                        "beskrivelse": {
+                          "type": "string"
+                        },
+                        "steder": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "evne": {
+                                "type": "string",
+                                "description": "En evnetypes nøgle (fx proceszone, saerzone, udsugning)"
+                              },
+                              "parametre": {
+                                "type": "object",
+                                "description": "De værdier, evnen skal have; et listefelt skal indeholde værdien"
+                              }
+                            },
+                            "required": [
+                              "evne"
+                            ]
+                          },
+                          "description": "Hvor enheden skal stå, mens trinnet varer; tom = hvor som helst"
+                        },
+                        "grund": {
+                          "type": "string"
+                        },
+                        "frigivesAf": {
+                          "type": "string",
+                          "enum": [
+                            "medarbejder",
+                            "lageransvarlig"
+                          ],
+                          "description": "Hvem der udfører trinnet (det sidste er frigivelsen)"
+                        },
+                        "certificering": {
+                          "type": "string",
+                          "description": "En certificering, den udførende skal bekræfte (står i loggen)"
+                        },
+                        "tjekliste": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "noegle": {
+                                "type": "string"
+                              },
+                              "tekst": {
+                                "type": "string"
+                              },
+                              "paakraevet": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "noegle",
+                              "tekst"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "noegle",
+                        "navn",
+                        "frigivesAf"
+                      ]
+                    }
+                  },
+                  "sortering": {
+                    "type": "integer"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "noegle",
+                  "navn",
+                  "status",
+                  "start",
+                  "trin"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ flow }"
+          },
+          "409": {
+            "description": "Nøglen findes"
+          },
+          "422": {
+            "description": "Ugyldigt flow"
+          }
+        }
+      }
+    },
+    "/ansvarlig/procesflows/{id}": {
+      "x-moduler": [
+        "procesflows"
+      ],
+      "patch": {
+        "operationId": "lager_ansvarlig_procesflow_ret",
+        "summary": "Ret et procesflow eller slå det fra. Et trin, et aktivt forløb står på, kan ikke fjernes, og status kan ikke ændres med aktive forløb (409)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": "string"
+                  },
+                  "beskrivelse": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "karantaene",
+                      "til_klargoering"
+                    ]
+                  },
+                  "start": {
+                    "type": "object"
+                  },
+                  "trin": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "noegle": {
+                          "type": "string"
+                        },
+                        "navn": {
+                          "type": "string"
+                        },
+                        "beskrivelse": {
+                          "type": "string"
+                        },
+                        "steder": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "evne": {
+                                "type": "string",
+                                "description": "En evnetypes nøgle (fx proceszone, saerzone, udsugning)"
+                              },
+                              "parametre": {
+                                "type": "object",
+                                "description": "De værdier, evnen skal have; et listefelt skal indeholde værdien"
+                              }
+                            },
+                            "required": [
+                              "evne"
+                            ]
+                          },
+                          "description": "Hvor enheden skal stå, mens trinnet varer; tom = hvor som helst"
+                        },
+                        "grund": {
+                          "type": "string"
+                        },
+                        "frigivesAf": {
+                          "type": "string",
+                          "enum": [
+                            "medarbejder",
+                            "lageransvarlig"
+                          ],
+                          "description": "Hvem der udfører trinnet (det sidste er frigivelsen)"
+                        },
+                        "certificering": {
+                          "type": "string",
+                          "description": "En certificering, den udførende skal bekræfte (står i loggen)"
+                        },
+                        "tjekliste": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "noegle": {
+                                "type": "string"
+                              },
+                              "tekst": {
+                                "type": "string"
+                              },
+                              "paakraevet": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "noegle",
+                              "tekst"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "noegle",
+                        "navn",
+                        "frigivesAf"
+                      ]
+                    }
+                  },
+                  "sortering": {
+                    "type": "integer"
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  },
+                  "bekraeft": {
+                    "type": "boolean",
+                    "description": "Påkrævet for at slå et flow, der dækker asbestudstyr, fra eller rette det væk fra asbest; så gælder kun kernens værn (409 ellers)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ flow }"
+          },
+          "404": {
+            "description": "Flowet findes ikke på dine lagre"
+          },
+          "409": {
+            "description": "Aktive forløb står på et trin, der fjernes, eller flowet dækker asbest og bekraeft mangler"
+          }
+        }
+      }
+    },
+    "/ansvarlig/procesforloeb": {
+      "x-moduler": [
+        "procesflows"
+      ],
+      "post": {
+        "operationId": "lager_ansvarlig_procesforloeb_start",
+        "summary": "Start et flow i hånden: enheden spærres med flowets status, og forløbet står på første trin",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tag": {
+                    "type": "string"
+                  },
+                  "flow": {
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "description": "Id eller nøgle"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tag",
+                  "flow"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ forloeb: { id, status, trin } }"
+          },
+          "404": {
+            "description": "Enheden eller flowet findes ikke"
+          },
+          "409": {
+            "description": "Enheden er allerede i et forløb, eller kan ikke spærres fra sin status"
+          }
+        }
+      }
+    },
+    "/ansvarlig/produktopslag/{kode}": {
+      "x-moduler": [
+        "produktopslag"
+      ],
+      "get": {
+        "operationId": "lager_ansvarlig_produktopslag",
+        "summary": "Forslag til en ny vares navn ud fra stregkoden, hos de eksterne kilder i LAGER_PRODUKTOPSLAG (standard Open Food Facts og Open Products Facts). Stregkoden sendes til kilden. Intet gemmes",
+        "parameters": [
+          {
+            "name": "kode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "EAN-13, EAN-8, UPC-A, UPC-E eller GTIN-14 (cifre, mellemrum tilladt), med AIM-identifikator (]E4 = EAN-8, ]E0 + 8 cifre = UPC-E) eller GS1 med AI 01 «(01)…». 8 cifre uden identifikator kan være både EAN-8 og UPC-E: et opslag prøver begge (EAN-8 først); at gemme kræver en entydig form (]E4…, GTIN-14 eller UPC-A)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ kode, forslag }; forslag er null, når ingen kilde kender koden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kode": {
+                      "type": "object",
+                      "properties": {
+                        "gtin": {
+                          "type": "string",
+                          "pattern": "^[0-9]{14}$",
+                          "description": "Koden som GTIN-14"
+                        },
+                        "visning": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "forslag": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "navn": {
+                              "type": "string"
+                            },
+                            "produktnavn": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "maerke": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "maengde": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "kilde": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Ikke lageransvarlig"
+          },
+          "422": {
+            "description": "Ikke en EAN/GTIN, eller forkert kontrolciffer"
+          },
+          "429": {
+            "description": "For mange opslag (pr. person; et husket svar tæller ikke)"
+          },
+          "502": {
+            "description": "Ingen kilde svarede"
+          },
+          "503": {
+            "description": "LAGER_PRODUKTOPSLAG er sat forkert"
           }
         }
       }
@@ -5047,6 +6309,10 @@
                   "egenskaber": {
                     "type": "object"
                   },
+                  "parametre": {
+                    "type": "object",
+                    "description": "Kun med skabelon: værdier til skabelonens parametre { navn: værdi }"
+                  },
                   "koebspris": {
                     "type": "number",
                     "minimum": 0,
@@ -5339,6 +6605,12 @@
                       },
                       "pris_ca": {
                         "type": "integer"
+                      },
+                      "parametre": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "$ref": "#/components/schemas/Skabelonparameter"
+                        }
                       }
                     }
                   },
@@ -5517,6 +6789,12 @@
                       },
                       "pris_ca": {
                         "type": "integer"
+                      },
+                      "parametre": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "$ref": "#/components/schemas/Skabelonparameter"
+                        }
                       }
                     }
                   },
@@ -5557,6 +6835,99 @@
           },
           "422": {
             "description": "En indbygget rettes med en kopi, eller skabelonen er ugyldig"
+          }
+        }
+      }
+    },
+    "/ansvarlig/skabeloner/fravalg": {
+      "get": {
+        "operationId": "lager_ansvarlig_skabelon_fravalg",
+        "summary": "De indbyggede skabeloners familier med antal og eksempler, og hvad der er slået fra for installationen og lageret (#56)",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ lagerId, familier: [{ familie, antal, eksempler, installation, lager }], noegler: [{ noegle, installation, lagerId }], kanInstallation }"
+          }
+        }
+      },
+      "put": {
+        "operationId": "lager_ansvarlig_skabelon_fravalg_saet",
+        "summary": "Slå en indbygget skabelon (noegle) eller en hel familie fra eller til, for lageret eller hele installationen (installation: true kræver lageransvarlig på alle lagre). En fravalgt vises ikke i biblioteket og oprettes ikke direkte; som barn af en anden skabelon virker den stadig. Absolut tilstand: en gentagelse er ufarlig",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "installation": {
+                    "type": "boolean"
+                  },
+                  "noegle": {
+                    "type": "string"
+                  },
+                  "familie": {
+                    "type": "string"
+                  },
+                  "fravalgt": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "fravalgt"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ aendret, …oversigten }"
+          },
+          "403": {
+            "description": "Ikke lageransvarlig (på lageret eller alle lagre)"
+          },
+          "404": {
+            "description": "Skabelonen eller familien findes ikke"
+          },
+          "422": {
+            "description": "Både eller ingen af noegle og familie"
+          }
+        }
+      }
+    },
+    "/ansvarlig/udlaan": {
+      "x-moduler": [
+        "udlaan"
+      ],
+      "get": {
+        "operationId": "lager_ansvarlig_udlaan",
+        "summary": "Lagerets åbne udlån til personer uden konto: hvem har lånt hvad af hvem, med kontakten. Kun den lageransvarlige; rettes af den, der lånte ud",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ lager, udlaan: Udlaan[] }"
           }
         }
       }
@@ -7959,6 +9330,25 @@
                             "type": "object",
                             "description": "Hvidlisten af HA's attributter (preset_modes, percentage, percentage_step, hvac_modes, brightness …)"
                           },
+                          "go2rtcStroem": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "Kun kamera (#40): strømmens navn i installationens go2rtc — et navn, aldrig en adresse"
+                          },
+                          "kameraAdgang": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "enum": [
+                              "ansvarlig",
+                              "medarbejder",
+                              null
+                            ],
+                            "description": "Kun kamera (#40): hvem på lageret der må se det; null = ansvarlig"
+                          },
                           "oprettet": {
                             "type": "string"
                           },
@@ -8062,6 +9452,26 @@
                   "meta": {
                     "type": "object",
                     "description": "Fx { taerskel: 0.5 } for egen skrivetærskel; { udsugning: true } for udsugningen ved printere; { gruppe: \"x\" } skiller flere anlæg eller printere på samme lokation; { tilstande: { \"druck\": \"printer\" } } for en printers egne tilstande"
+                  },
+                  "go2rtcStroem": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+                    "description": "Kun slags kamera (#40): strømmens navn i go2rtc (aldrig en rtsp://-adresse; den står i go2rtc's egen konfiguration). At sætte eller skifte den kræver lageransvarlig på alle lagre; 409 hvis strømmen er mappet til et andet kamera"
+                  },
+                  "kameraAdgang": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "enum": [
+                      "ansvarlig",
+                      "medarbejder",
+                      null
+                    ],
+                    "description": "Kun slags kamera (#40): ansvarlig (standard, også null) = kun lagerets lageransvarlige må se det; medarbejder = også værktøjsbrugerne. Lagerets ansvarlige vælger"
                   }
                 },
                 "required": [
@@ -8185,6 +9595,25 @@
                           "type": "object",
                           "description": "Hvidlisten af HA's attributter (preset_modes, percentage, percentage_step, hvac_modes, brightness …)"
                         },
+                        "go2rtcStroem": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "Kun kamera (#40): strømmens navn i installationens go2rtc — et navn, aldrig en adresse"
+                        },
+                        "kameraAdgang": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "ansvarlig",
+                            "medarbejder",
+                            null
+                          ],
+                          "description": "Kun kamera (#40): hvem på lageret der må se det; null = ansvarlig"
+                        },
                         "oprettet": {
                           "type": "string"
                         },
@@ -8262,6 +9691,26 @@
                   "meta": {
                     "type": "object",
                     "description": "Fx { taerskel: 0.5 } for egen skrivetærskel; { udsugning: true } for udsugningen ved printere; { gruppe: \"x\" } skiller flere anlæg eller printere på samme lokation; { tilstande: { \"druck\": \"printer\" } } for en printers egne tilstande"
+                  },
+                  "go2rtcStroem": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+                    "description": "Kun slags kamera (#40): strømmens navn i go2rtc (aldrig en rtsp://-adresse; den står i go2rtc's egen konfiguration). At sætte eller skifte den kræver lageransvarlig på alle lagre; 409 hvis strømmen er mappet til et andet kamera"
+                  },
+                  "kameraAdgang": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "enum": [
+                      "ansvarlig",
+                      "medarbejder",
+                      null
+                    ],
+                    "description": "Kun slags kamera (#40): ansvarlig (standard, også null) = kun lagerets lageransvarlige må se det; medarbejder = også værktøjsbrugerne. Lagerets ansvarlige vælger"
                   },
                   "aktiv": {
                     "type": "boolean"
@@ -8532,6 +9981,373 @@
           },
           "422": {
             "description": "Handlingen eller argumentet passer ikke til enheden"
+          }
+        }
+      }
+    },
+    "/iot/kameraer": {
+      "x-moduler": [
+        "iot",
+        "kameraer"
+      ],
+      "get": {
+        "operationId": "lager_iot_kameraer",
+        "summary": "Kameraerne, du må se, på dine lagre (#40): hvad hvert kan vise (billede, live-formater). Aldrig en adresse, et brugernavn eller et token. Den lageransvarlige får også, om go2rtc og Home Assistant er sat op (ja/nej)",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "lokation",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lokationen og dens efterkommere"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ kameraer, opsaetning? }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kameraer": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "lagerId": {
+                            "type": "integer"
+                          },
+                          "lokation": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "kode": {
+                                "type": "string"
+                              },
+                              "navn": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "adgang": {
+                            "type": "string",
+                            "enum": [
+                              "ansvarlig",
+                              "medarbejder"
+                            ]
+                          },
+                          "kilde": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "enum": [
+                              "go2rtc",
+                              "ha",
+                              null
+                            ],
+                            "description": "Hvor billedet kommer fra; null = ikke sat op"
+                          },
+                          "billede": {
+                            "type": "boolean"
+                          },
+                          "live": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "mp4",
+                                "hls",
+                                "mjpeg"
+                              ]
+                            }
+                          },
+                          "tilstand": {
+                            "type": "string"
+                          },
+                          "sidst": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "opsaetning": {
+                      "type": "object",
+                      "properties": {
+                        "go2rtc": {
+                          "type": "boolean"
+                        },
+                        "ha": {
+                          "type": "boolean"
+                        },
+                        "fejl": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/iot/kameraer/{id}/billede": {
+      "x-moduler": [
+        "iot",
+        "kameraer"
+      ],
+      "get": {
+        "operationId": "lager_iot_kamera_billede",
+        "summary": "Et stillbillede fra kameraet, hentet gennem backenden fra go2rtc eller Home Assistant (#40). Det samme billede deles i to sekunder; typen er af indholdet. Ikke gennem MCP-gatewayen (403). 503: kameraet er ikke sat op; 502: kameraet svarer ikke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Billedet",
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kameraet findes ikke, er ikke på dine lagre, eller du må ikke se det (kameraAdgang)"
+          }
+        }
+      }
+    },
+    "/iot/kameraer/{id}/hls/{billet}": {
+      "x-moduler": [
+        "iot",
+        "kameraer"
+      ],
+      "get": {
+        "operationId": "lager_iot_kamera_hls",
+        "summary": "En del af en HLS-strøm (#40): playliste, init eller segment bag en signeret henvisning fra den forrige playliste. Gælder kun dig, kun kameraet og kun til strømmens slut",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "billet",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Delen",
+            "content": {
+              "application/vnd.apple.mpegurl": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "video/mp2t": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "video/iso.segment": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kameraet findes ikke, er ikke på dine lagre, eller du må ikke se det (kameraAdgang)"
+          }
+        }
+      }
+    },
+    "/iot/kameraer/{id}/live": {
+      "x-moduler": [
+        "iot",
+        "kameraer"
+      ],
+      "post": {
+        "operationId": "lager_iot_kamera_live",
+        "summary": "En kortlivet strømbillet til kameraet (#40): { sti: \"live/<billet>\" } relativt til kameraets rute, åbnes inden for et minut og lukker ved slut (KAMERA_LIVE_MIN). Gælder kun dig og kun dette kamera, og åbner intet uden din session. Står i revisionsloggen (med en reference, ikke billetten). Ikke gennem MCP-gatewayen",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "mp4",
+                      "hls",
+                      "mjpeg"
+                    ]
+                  }
+                },
+                "required": [
+                  "format"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ sti, format, udloeber, slut }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sti": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "udloeber": {
+                      "type": "string"
+                    },
+                    "slut": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kameraet findes ikke, er ikke på dine lagre, eller du må ikke se det (kameraAdgang)"
+          },
+          "422": {
+            "description": "Kameraet kan ikke vises i formatet"
+          }
+        }
+      }
+    },
+    "/iot/kameraer/{id}/live/{billet}": {
+      "x-moduler": [
+        "iot",
+        "kameraer"
+      ],
+      "get": {
+        "operationId": "lager_iot_kamera_live_stroem",
+        "summary": "Live bag en billet (#40): MP4 eller MJPEG som én lang forespørgsel, eller HLS' første playliste, hvis adresser er signerede henvisninger til …/hls/{billet}. 429: for mange åbne live-visninger (KAMERA_MAKS_LIVE i alt, to pr. person; en HLS-visning tæller som én, til den har været uden forespørgsler i 20 s)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "billet",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strømmen",
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "multipart/x-mixed-replace": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/vnd.apple.mpegurl": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kameraet findes ikke, er ikke på dine lagre, eller du må ikke se det (kameraAdgang)"
           }
         }
       }
@@ -9576,6 +11392,143 @@
         }
       }
     },
+    "/kanban": {
+      "x-moduler": [
+        "kanban"
+      ],
+      "post": {
+        "operationId": "lager_kanban",
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "Den, der scanner kortet, uden login; ikke for en medarbejder eller agent."
+        },
+        "summary": "Kanbankortet, uden login: varens navn og om kortet allerede er meldt — intet andet. Ændrer intet. Rate limit pr. IP og pr. kort",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "description": "Tokenet fra kortets fragment (/k#t=K1.<offentligt id>.<MAC>)"
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ kort: { vare, meldt } }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kort": {
+                      "type": "object",
+                      "properties": {
+                        "vare": {
+                          "type": "string"
+                        },
+                        "meldt": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kortet virker ikke: forfalsket, kaldt tilbage, varen slået fra eller ikke længere på lokationen, eller modulet fra (samme svar)"
+          },
+          "415": {
+            "description": "Kroppen skal være JSON"
+          },
+          "429": {
+            "description": "For mange forsøg fra din adresse eller på kortet"
+          }
+        }
+      }
+    },
+    "/kanban/signal": {
+      "x-moduler": [
+        "kanban"
+      ],
+      "post": {
+        "operationId": "lager_kanban_signal",
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "Den, der tømmer kassen, melder den uden login; ikke for en agent."
+        },
+        "summary": "Kassen er tom, uden login: en genbestilling til lager med kortets antal, eller den åbne tælles op (ny = false). Ti scan er ét signal, til det er modtaget eller annulleret. Ingen mail herfra",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "description": "Tokenet fra kortets fragment (/k#t=K1.<offentligt id>.<MAC>)"
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ kort: { vare, meldt: true }, ny }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kort": {
+                      "type": "object",
+                      "properties": {
+                        "vare": {
+                          "type": "string"
+                        },
+                        "meldt": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    "ny": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kortet virker ikke: forfalsket, kaldt tilbage, varen slået fra eller ikke længere på lokationen, eller modulet fra (samme svar)"
+          },
+          "415": {
+            "description": "Kroppen skal være JSON"
+          },
+          "429": {
+            "description": "For mange forsøg fra din adresse eller på kortet"
+          }
+        }
+      }
+    },
     "/kategoriskabeloner": {
       "get": {
         "operationId": "lager_kategoriskabeloner",
@@ -10022,6 +11975,96 @@
         }
       }
     },
+    "/lokationer/{id}/passer": {
+      "get": {
+        "operationId": "lager_lokation_passer",
+        "summary": "Passer en ting her (#56)? En model (med mål) eller mål holdt op mod lokationens effektive indre mål; drejes om den lodrette akse, hvis det hjælper",
+        "description": "En fast plads (udskæring, krog med en model) passer kun til sin egen model, og en fuld plads (kapacitet) ikke. Det, der allerede står her, trækkes ikke fra målene. Grundfladen afgør: passer er null, når bredde eller dybde mangler, og højden tæller kun, når begge højder kendes. &plan= regner på et scenaries træ.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Model-id på lagerets selskab (dens mål)"
+          },
+          {
+            "name": "bredde_mm",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Mål i mm (går over modellens)"
+          },
+          {
+            "name": "dybde_mm",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Mål i mm (går over modellens)"
+          },
+          {
+            "name": "hoejde_mm",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "Mål i mm (går over modellens)"
+          },
+          {
+            "name": "plan",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Et scenarie (#33)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ ting, …Pladsvurdering }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "ting": {
+                          "$ref": "#/components/schemas/Ting"
+                        }
+                      }
+                    },
+                    {
+                      "$ref": "#/components/schemas/Pladsvurdering"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Lokationen eller modellen findes ikke for kalderen"
+          },
+          "422": {
+            "description": "Hverken model eller mål"
+          }
+        }
+      }
+    },
     "/lokationer/{id}/visning": {
       "get": {
         "operationId": "lager_lokation_visning",
@@ -10312,6 +12355,122 @@
         }
       }
     },
+    "/lokationer/find-plads": {
+      "get": {
+        "operationId": "lager_find_plads",
+        "summary": "Hvor er der plads til en ting (#56)? Hylder, skuffer, fag, bins og kasser, hvor en model eller mål passer: modellens egne faste pladser først, så de tætteste",
+        "description": "Reoler, skabe, plader og rum er ikke svar; deres hylder og skuffer er. En fast plads til en anden model og en fuld plads udelades. ukendte=1 tager også pladser med, hvor et mål mangler, til sidst.",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "rod",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Kun under denne lokation"
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "bredde_mm",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "dybde_mm",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "hoejde_mm",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "plan",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Et scenarie (#33): også planlagte hylder og kasser"
+          },
+          {
+            "name": "max",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "ukendte",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ ting, pladser: Pladsvurdering[], vurderet }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ting": {
+                      "$ref": "#/components/schemas/Ting"
+                    },
+                    "pladser": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Pladsvurdering"
+                      }
+                    },
+                    "vurderet": {
+                      "type": "integer",
+                      "description": "Antal lokationer, der blev holdt op mod tingen"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Rod eller model findes ikke for kalderen"
+          },
+          "422": {
+            "description": "Hverken model eller mål"
+          }
+        }
+      }
+    },
     "/lokationer/kode/{kode}": {
       "get": {
         "operationId": "lager_lokation_kode",
@@ -10347,7 +12506,7 @@
     "/lokationer/kodeforslag": {
       "get": {
         "operationId": "lager_lokation_kodeforslag",
-        "summary": "Kernens kodeforslag for en ny lokation efter lagerets kodeskabelon (frie koder R1-3, SK1-B3, eller A-12-3)",
+        "summary": "Kernens kodeforslag for en ny lokation efter lagerets kodeskabelon (frie koder som R1-3 og SK1-B3, eller zone-reol-hylde som A-12-3)",
         "parameters": [
           {
             "name": "type",
@@ -10752,6 +12911,190 @@
         }
       }
     },
+    "/laan": {
+      "x-moduler": [
+        "udlaan"
+      ],
+      "post": {
+        "operationId": "lager_laan",
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "Lånerens egen side uden login; ikke for en medarbejder eller agent."
+        },
+        "summary": "Lånerens link, uden login: det udlån, tokenet hører til — navn, hvad og af hvem (fornavn), siden og forventet retur. Ingen kontakt. Rate limit pr. IP",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "description": "Tokenet fra linkets fragment (/laan#t=…)"
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ udlaan }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "udlaan": {
+                      "type": "object",
+                      "properties": {
+                        "laaner": {
+                          "type": "string"
+                        },
+                        "udlaantAf": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "siden": {
+                          "type": "string"
+                        },
+                        "forventetRetur": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "paamind": {
+                          "type": "boolean"
+                        },
+                        "ting": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "navn": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "tag": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Linket virker ikke: forfalsket, udløbet, tilbagekaldt, udlånet lukket, eller modulet fra (samme svar)"
+          },
+          "429": {
+            "description": "For mange forsøg fra din adresse"
+          }
+        }
+      }
+    },
+    "/laan/afmeld": {
+      "x-moduler": [
+        "udlaan"
+      ],
+      "post": {
+        "operationId": "lager_laan_afmeld",
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "Lånerens afmelding uden login (link eller List-Unsubscribe); ikke for en agent."
+        },
+        "summary": "Låneren siger nej tak til påmindelser på mail, uden login, varigt for udlånet. Idempotent. { token } (lånerens link) svarer med udlånet; { afmeld } (mailens smalle token fra List-Unsubscribe) svarer kun { afmeldt: true }",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  },
+                  "afmeld": {
+                    "type": "string",
+                    "description": "Mailens afmeldingstoken (UA1…): kan kun afmelde påmindelser for ét udlån"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ udlaan } eller { afmeldt: true }"
+          },
+          "404": {
+            "description": "Tokenet virker ikke"
+          },
+          "429": {
+            "description": "For mange forsøg fra din adresse"
+          }
+        }
+      }
+    },
+    "/laan/tilmeld": {
+      "x-moduler": [
+        "udlaan"
+      ],
+      "post": {
+        "operationId": "lager_laan_tilmeld",
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "Lånerens fortrydelse af sit nej tak, uden login; ikke for en agent."
+        },
+        "summary": "Låneren fortryder sit nej tak til påmindelser, uden login og KUN med mailens afmeldingstoken (UA1, sendt til hans postkasse og bundet til adressen); lånerens link godtages ikke, for det laver den, der lånte ud. Adressen tages af spærrelisten. Påmindelsen slås ikke til; det gør den, der lånte ud. Idempotent",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "afmeld": {
+                    "type": "string",
+                    "description": "Mailens afmeldingstoken (UA1…)"
+                  }
+                },
+                "required": [
+                  "afmeld"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ fortrudt: true }"
+          },
+          "404": {
+            "description": "Linket virker ikke"
+          },
+          "429": {
+            "description": "For mange forsøg fra din adresse"
+          }
+        }
+      }
+    },
     "/me": {
       "get": {
         "summary": "Hvem er du, dine lagre og deres tal, og installationens moduler",
@@ -10902,6 +13245,183 @@
         }
       }
     },
+    "/placeringsregler": {
+      "get": {
+        "operationId": "lager_placeringsregler",
+        "summary": "Placeringsreglerne: hvad der skal stå hvor (skal_staa), og hvad et sted kun er til (kun), som evner på lokationerne. Installationens og lagrenes egne",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ regler }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "regler": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "lagerId": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ],
+                            "description": "null = hele installationens"
+                          },
+                          "noegle": {
+                            "type": "string"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "slags": {
+                            "type": "string",
+                            "enum": [
+                              "skal_staa",
+                              "kun"
+                            ],
+                            "description": "skal_staa: det, hvem siger, skal stå et af stederne. kun: stederne er kun til det, hvem siger"
+                          },
+                          "hvem": {
+                            "type": "object",
+                            "properties": {
+                              "asbest": {
+                                "type": "boolean"
+                              },
+                              "kategorier": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "description": "Hvem det gælder: enhedens asbestmærke og modellens kategori. Udeladt = alle"
+                          },
+                          "steder": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "evne": {
+                                  "type": "string",
+                                  "description": "En evnetypes nøgle (fx proceszone, saerzone, udsugning)"
+                                },
+                                "parametre": {
+                                  "type": "object",
+                                  "description": "De værdier, evnen skal have; et listefelt skal indeholde værdien"
+                                }
+                              },
+                              "required": [
+                                "evne"
+                              ]
+                            },
+                            "description": "Alternativer: ét af dem skal passe"
+                          },
+                          "grund": {
+                            "type": "string",
+                            "description": "Beskeden, når reglen siger nej"
+                          },
+                          "sortering": {
+                            "type": "integer"
+                          },
+                          "kilde": {
+                            "type": "string",
+                            "enum": [
+                              "indbygget",
+                              "bruger"
+                            ]
+                          },
+                          "aktiv": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/placeringsregler/afvigelser": {
+      "get": {
+        "operationId": "lager_placeringsafvigelser",
+        "summary": "Valideringen: enheder, der står et sted, reglerne (eller deres forløbs trin) ikke tillader, og enheder, hvis models hårde krav til evnerne ikke er opfyldt på hjemmepladsen. Kun til at læse",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ afvigelser }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "afvigelser": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "tag": {
+                            "type": "string"
+                          },
+                          "navn": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "plads": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "slags": {
+                            "type": "string",
+                            "enum": [
+                              "regel",
+                              "krav"
+                            ]
+                          },
+                          "grund": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/pladser/{kode}": {
       "get": {
         "summary": "Hyldeetiketten: pladsen og enhederne, der hører til dér",
@@ -10926,6 +13446,690 @@
         "responses": {
           "200": {
             "description": "{ plads: { id, code, navn, zone, zoneNavn, slags, reol, hylde, enheder, lager: { id, code, navn } }, enheder: Enhed[] }"
+          }
+        }
+      }
+    },
+    "/procesflows": {
+      "x-moduler": [
+        "procesflows"
+      ],
+      "get": {
+        "operationId": "lager_procesflows",
+        "summary": "Procesflowene med trinene (fx karantæne → rengøring → frigivelse): installationens og lagrenes egne",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ flows }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "flows": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "lagerId": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "noegle": {
+                            "type": "string"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "beskrivelse": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "karantaene",
+                              "til_klargoering"
+                            ],
+                            "description": "Spærringen, enheden har, mens den er i flowet"
+                          },
+                          "start": {
+                            "type": "object",
+                            "properties": {
+                              "ved": {
+                                "type": "string",
+                                "enum": [
+                                  "retur",
+                                  "manuel"
+                                ]
+                              },
+                              "skadet": {
+                                "type": "boolean",
+                                "description": "Kun en skadet (true) eller hel (false) retur; udeladt = begge"
+                              },
+                              "hvem": {
+                                "type": "object",
+                                "properties": {
+                                  "asbest": {
+                                    "type": "boolean"
+                                  },
+                                  "kategorier": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "description": "Hvem det gælder: enhedens asbestmærke og modellens kategori. Udeladt = alle"
+                              }
+                            }
+                          },
+                          "trin": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "noegle": {
+                                  "type": "string"
+                                },
+                                "navn": {
+                                  "type": "string"
+                                },
+                                "beskrivelse": {
+                                  "type": "string"
+                                },
+                                "steder": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "evne": {
+                                        "type": "string",
+                                        "description": "En evnetypes nøgle (fx proceszone, saerzone, udsugning)"
+                                      },
+                                      "parametre": {
+                                        "type": "object",
+                                        "description": "De værdier, evnen skal have; et listefelt skal indeholde værdien"
+                                      }
+                                    },
+                                    "required": [
+                                      "evne"
+                                    ]
+                                  },
+                                  "description": "Hvor enheden skal stå, mens trinnet varer; tom = hvor som helst"
+                                },
+                                "grund": {
+                                  "type": "string"
+                                },
+                                "frigivesAf": {
+                                  "type": "string",
+                                  "enum": [
+                                    "medarbejder",
+                                    "lageransvarlig"
+                                  ],
+                                  "description": "Hvem der udfører trinnet (det sidste er frigivelsen)"
+                                },
+                                "certificering": {
+                                  "type": "string",
+                                  "description": "En certificering, den udførende skal bekræfte (står i loggen)"
+                                },
+                                "tjekliste": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "noegle": {
+                                        "type": "string"
+                                      },
+                                      "tekst": {
+                                        "type": "string"
+                                      },
+                                      "paakraevet": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "noegle",
+                                      "tekst"
+                                    ]
+                                  }
+                                }
+                              },
+                              "required": [
+                                "noegle",
+                                "navn",
+                                "frigivesAf"
+                              ]
+                            }
+                          },
+                          "sortering": {
+                            "type": "integer",
+                            "description": "Den første aktive, der passer en retur, vinder"
+                          },
+                          "kilde": {
+                            "type": "string",
+                            "enum": [
+                              "indbygget",
+                              "bruger"
+                            ]
+                          },
+                          "aktiv": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/procesforloeb": {
+      "x-moduler": [
+        "procesflows"
+      ],
+      "get": {
+        "operationId": "lager_procesforloeb",
+        "summary": "Forløbene på dine lagre (de aktive som standard): flowet, trinnet nu og de næste",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Kun én enhed"
+          },
+          {
+            "name": "alle",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "Også de afsluttede"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ forloeb }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "forloeb": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "tag": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "aktiv",
+                              "frigivet",
+                              "afbrudt"
+                            ]
+                          },
+                          "startet": {
+                            "type": "string"
+                          },
+                          "startetAf": {
+                            "type": "string"
+                          },
+                          "afsluttet": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "flow": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "noegle": {
+                                "type": "string"
+                              },
+                              "navn": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "trin": {
+                            "type": "object",
+                            "properties": {
+                              "noegle": {
+                                "type": "string"
+                              },
+                              "navn": {
+                                "type": "string"
+                              },
+                              "beskrivelse": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "frigivesAf": {
+                                "type": "string"
+                              },
+                              "certificering": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "tjekliste": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "noegle": {
+                                      "type": "string"
+                                    },
+                                    "tekst": {
+                                      "type": "string"
+                                    },
+                                    "paakraevet": {
+                                      "type": "boolean"
+                                    }
+                                  }
+                                }
+                              },
+                              "steder": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "evne": {
+                                      "type": "string",
+                                      "description": "En evnetypes nøgle (fx proceszone, saerzone, udsugning)"
+                                    },
+                                    "parametre": {
+                                      "type": "object",
+                                      "description": "De værdier, evnen skal have; et listefelt skal indeholde værdien"
+                                    }
+                                  },
+                                  "required": [
+                                    "evne"
+                                  ]
+                                }
+                              },
+                              "nummer": {
+                                "type": "integer"
+                              },
+                              "af": {
+                                "type": "integer"
+                              },
+                              "sidste": {
+                                "type": "boolean"
+                              }
+                            },
+                            "description": "Trinnet, forløbet står på"
+                          },
+                          "naeste": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "noegle": {
+                                  "type": "string"
+                                },
+                                "navn": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/procesforloeb/{id}": {
+      "x-moduler": [
+        "procesflows"
+      ],
+      "get": {
+        "operationId": "lager_procesforloeb_log",
+        "summary": "Ét forløb med loggen: hvert trin med hvem, hvornår, noten, de afkrydsede punkter og certificeringen (dokumentationen, fx til asbest)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ forloeb, log }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "forloeb": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "tag": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "aktiv",
+                            "frigivet",
+                            "afbrudt"
+                          ]
+                        },
+                        "startet": {
+                          "type": "string"
+                        },
+                        "startetAf": {
+                          "type": "string"
+                        },
+                        "afsluttet": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "flow": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "integer"
+                            },
+                            "noegle": {
+                              "type": "string"
+                            },
+                            "navn": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "trin": {
+                          "type": "object",
+                          "properties": {
+                            "noegle": {
+                              "type": "string"
+                            },
+                            "navn": {
+                              "type": "string"
+                            },
+                            "beskrivelse": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "frigivesAf": {
+                              "type": "string"
+                            },
+                            "certificering": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "tjekliste": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "noegle": {
+                                    "type": "string"
+                                  },
+                                  "tekst": {
+                                    "type": "string"
+                                  },
+                                  "paakraevet": {
+                                    "type": "boolean"
+                                  }
+                                }
+                              }
+                            },
+                            "steder": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "evne": {
+                                    "type": "string",
+                                    "description": "En evnetypes nøgle (fx proceszone, saerzone, udsugning)"
+                                  },
+                                  "parametre": {
+                                    "type": "object",
+                                    "description": "De værdier, evnen skal have; et listefelt skal indeholde værdien"
+                                  }
+                                },
+                                "required": [
+                                  "evne"
+                                ]
+                              }
+                            },
+                            "nummer": {
+                              "type": "integer"
+                            },
+                            "af": {
+                              "type": "integer"
+                            },
+                            "sidste": {
+                              "type": "boolean"
+                            }
+                          },
+                          "description": "Trinnet, forløbet står på"
+                        },
+                        "naeste": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "noegle": {
+                                "type": "string"
+                              },
+                              "navn": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "log": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "trin": {
+                            "type": "string"
+                          },
+                          "handling": {
+                            "type": "string",
+                            "enum": [
+                              "startet",
+                              "udfoert",
+                              "afbrudt"
+                            ]
+                          },
+                          "af": {
+                            "type": "string"
+                          },
+                          "ts": {
+                            "type": "string"
+                          },
+                          "note": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "tjekket": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "noegle": {
+                                  "type": "string"
+                                },
+                                "tekst": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "certificering": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "bevaegelseId": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Forløbet findes ikke på dine lagre"
+          }
+        }
+      }
+    },
+    "/procesforloeb/{id}/udfoer": {
+      "x-moduler": [
+        "procesflows"
+      ],
+      "post": {
+        "operationId": "lager_procesforloeb_udfoer",
+        "summary": "Udfør trinnet, forløbet står på (trin = det, du så). Tjeklistens påkrævede punkter og en certificering skal med; et trin for den lageransvarlige kræver hende. Det sidste trin er frigivelsen",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "trin": {
+                    "type": "string"
+                  },
+                  "tjekket": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Punkternes nøgler"
+                  },
+                  "certificeret": {
+                    "type": "boolean",
+                    "description": "Bekræft trinnets certificering"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "trin"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ forloeb: { id, status, trin }, frigivet }"
+          },
+          "403": {
+            "description": "Trinnet udføres af den lageransvarlige"
+          },
+          "404": {
+            "description": "Forløbet findes ikke på dine lagre"
+          },
+          "409": {
+            "description": "Forløbet står på et andet trin eller er afsluttet"
+          },
+          "422": {
+            "description": "Tjeklisten eller certificeringen mangler"
           }
         }
       }
@@ -11452,6 +14656,17 @@
               ]
             },
             "description": "Også de indbyggede, der er rettet med en kopi"
+          },
+          {
+            "name": "fravalgte",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "Også de indbyggede, der er slået fra (fravalgt: true)"
           }
         ],
         "responses": {
@@ -11509,6 +14724,108 @@
           },
           "404": {
             "description": "Findes ikke for kalderen"
+          }
+        }
+      }
+    },
+    "/stregkoder/{kode}": {
+      "get": {
+        "operationId": "lager_stregkode",
+        "summary": "Hvilken forbrugsvare har stregkoden (lagerets selskab)? Kataloget (/forbrugsvarer) har også varernes stregkoder. Ingen priser",
+        "parameters": [
+          {
+            "name": "kode",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "EAN-13, EAN-8, UPC-A, UPC-E eller GTIN-14 (cifre, mellemrum tilladt), med AIM-identifikator (]E4 = EAN-8, ]E0 + 8 cifre = UPC-E) eller GS1 med AI 01 «(01)…». 8 cifre uden identifikator kan være både EAN-8 og UPC-E: et opslag prøver begge (EAN-8 først); at gemme kræver en entydig form (]E4…, GTIN-14 eller UPC-A)"
+          },
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ kode, vare }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kode": {
+                      "type": "object",
+                      "properties": {
+                        "gtin": {
+                          "type": "string",
+                          "pattern": "^[0-9]{14}$",
+                          "description": "Koden som GTIN-14"
+                        },
+                        "visning": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "vare": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "navn": {
+                          "type": "string"
+                        },
+                        "varenr": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "gruppe": {
+                          "type": "string"
+                        },
+                        "enhed": {
+                          "type": "string"
+                        },
+                        "aktiv": {
+                          "type": "boolean"
+                        },
+                        "beholdningsform": {
+                          "type": "string",
+                          "enum": [
+                            "antal",
+                            "niveau"
+                          ]
+                        },
+                        "beholdning": {
+                          "type": "integer"
+                        },
+                        "stregkoder": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[0-9]{8,14}$"
+                          },
+                          "description": "EAN/GTIN i visningsform: EAN-8, EAN-13 (også en UPC-A med 0 foran) eller GTIN-14"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ingen vare i lagerets selskab har koden (også et andet selskabs vare); en vare, der er slået fra, kun for den lageransvarlige"
+          },
+          "422": {
+            "description": "Ikke en EAN/GTIN, eller forkert kontrolciffer"
           }
         }
       }
@@ -11609,7 +14926,7 @@
     "/tjek-ud": {
       "post": {
         "summary": "Tag værktøj med ud til et projekt, eller uden projekt, når modulet projekter er fra",
-        "description": "projektId kræves, når modulet projekter er til (se /me → moduler), og afvises, når det er fra: så står værktøjet hos dig uden projekt og uden leje. laaner: udlån videre til en person uden konto, kun når modulet projekter er fra (ellers 422); du har stadig ansvaret.",
+        "description": "projektId kræves, når modulet projekter er til (se /me → moduler), og afvises, når det er fra: så står værktøjet hos dig uden projekt og uden leje. laaner: udlån videre til en person uden konto, kun med modulet udlaan (ellers 422); du har stadig ansvaret, og svarets udlaan.id er udlånet (se /udlaan).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -11661,7 +14978,221 @@
         },
         "responses": {
           "201": {
-            "description": "{ udleveret, overtaget, ukendte, afvist, dagsleje }"
+            "description": "{ udleveret, overtaget, ukendte, afvist, dagsleje, udlaan: { id } | null }"
+          }
+        }
+      }
+    },
+    "/udlaan": {
+      "x-moduler": [
+        "udlaan"
+      ],
+      "get": {
+        "operationId": "lager_udlaan",
+        "summary": "Dine åbne udlån til personer uden konto: hvem har hvad, kontakten, forventet retur, påmindelsen og lånerens link. Lægges an af /tjek-ud med laaner og lukkes, når det sidste er afleveret (/aflever)",
+        "responses": {
+          "200": {
+            "description": "{ udlaan: Udlaan[] }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "udlaan": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Udlaan"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/udlaan/{id}": {
+      "x-moduler": [
+        "udlaan"
+      ],
+      "get": {
+        "operationId": "lager_udlaan_et",
+        "summary": "Ét af dine åbne udlån",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Udlånets id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ udlaan }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "udlaan": {
+                      "$ref": "#/components/schemas/Udlaan"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ikke et åbent udlån, du selv har lånt ud, på dine lagre (også en kollegas og et lukket)"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "lager_udlaan_ret",
+        "summary": "Ret et af dine åbne udlån: forventet retur (gælder også enhederne), kontakten, og påmindelsen på mail til låneren — dit udtrykkelige ja pr. udlån, kræver en mail. Navnet rettes ikke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Udlånets id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "forventetRetur": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "ÅÅÅÅ-MM-DD eller null"
+                  },
+                  "paamind": {
+                    "type": "boolean"
+                  },
+                  "telefon": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "mail": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ udlaan }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "udlaan": {
+                      "$ref": "#/components/schemas/Udlaan"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ikke et åbent udlån, du selv har lånt ud, på dine lagre (også en kollegas og et lukket)"
+          },
+          "409": {
+            "description": "Påmindelse slået til, men låneren har frabedt sig påmindelser for dette udlån"
+          },
+          "422": {
+            "description": "Ukendt felt, forkert dato eller mail, eller påmindelse uden mail"
+          }
+        }
+      }
+    },
+    "/udlaan/{id}/link": {
+      "x-moduler": [
+        "udlaan"
+      ],
+      "post": {
+        "operationId": "lager_udlaan_link",
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "Lånerens link er en hemmelighed til en person uden konto og deles fra appen; en agent skal ikke lave det."
+        },
+        "summary": "Et nyt link til låneren (det har jeg lånt): signeret, ugætteligt, udløber efter 30 dage, kalder de forrige tilbage. Tokenet ses kun i dette svar; et genforsøg giver et nyt, og kun det seneste virker",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Udlånets id"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "{ link: { url, udloeber, qr } }; qr er en data:-adresse med QR-koden som SVG"
+          },
+          "404": {
+            "description": "Ikke et åbent udlån, du selv har lånt ud, på dine lagre (også en kollegas og et lukket)"
+          },
+          "503": {
+            "description": "Links er ikke sat op (LAGER_LAAN_SECRET eller KIOSK_SECRET)"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "lager_udlaan_link_tilbagekald",
+        "summary": "Kald lånerens link tilbage. Idempotent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Udlånets id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ udlaan }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "udlaan": {
+                      "$ref": "#/components/schemas/Udlaan"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ikke et åbent udlån, du selv har lånt ud, på dine lagre (også en kollegas og et lukket)"
           }
         }
       }
@@ -11779,12 +15310,15 @@
           },
           "mail": {
             "type": "string"
+          },
+          "udlaanId": {
+            "type": "integer"
           }
         },
         "required": [
           "navn"
         ],
-        "description": "Navnet ser alle. Telefon og mail kun den, der lånte ud, og den lageransvarlige."
+        "description": "Navnet ser alle. Telefon, mail og udlånets id kun den, der lånte ud, og den lageransvarlige."
       },
       "Projekt": {
         "type": "object",
@@ -11928,6 +15462,28 @@
           },
           "leverandoer": {
             "type": "string"
+          },
+          "kanban": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kortId": {
+                    "type": "integer"
+                  },
+                  "kode": {
+                    "type": "string"
+                  },
+                  "gentaget": {
+                    "type": "integer"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Meldt af et kanbankort (#52): kortet og antal scan, mens den var åben"
           }
         }
       },
@@ -11968,6 +15524,13 @@
               "null"
             ],
             "description": "Niveau-varer: det bedste sted (fuld, halv, lav, tom); beholdning er 0"
+          },
+          "stregkoder": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "EAN/GTIN i visningsform (#53): et scan finder varen"
           }
         }
       },
@@ -12806,6 +16369,13 @@
                     "type": "null"
                   }
                 ]
+              },
+              "stregkoder": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "EAN/GTIN i visningsform (#53)"
               }
             }
           },
@@ -12945,7 +16515,7 @@
                   "string",
                   "null"
                 ],
-                "description": "En tom fast plads: hvor enheden er («hos en kollega», «savnet»)"
+                "description": "En tom fast plads: hvor enheden er («hos Kim», «savnet»)"
               }
             }
           },
@@ -13251,38 +16821,153 @@
         }
       },
       "Skabelonbarn": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Geometri"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "skabelon": {
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "description": "En anden skabelon (id eller nøgle)"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "sted",
+                  "bygning",
+                  "rum",
+                  "omraade",
+                  "vaeg",
+                  "reol",
+                  "skab",
+                  "plade",
+                  "hylde",
+                  "skuffe",
+                  "grid",
+                  "skum",
+                  "bin",
+                  "udskaering",
+                  "krog",
+                  "fag",
+                  "plads",
+                  "beholder"
+                ],
+                "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
+              },
+              "navn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kode_suffiks": {
+                "type": "string",
+                "description": "Lægges på den nærmeste kode over barnet (S1 + 1 = S1-1); uden foreslår kernen den næste"
+              },
+              "antal": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100,
+                "description": "Gentag barnet (fx 5 hylder uden z: de fordeles)"
+              },
+              "egenskaber": {
+                "type": "object"
+              },
+              "kapacitet": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "model_id": {
+                "type": "integer",
+                "description": "En fast plads til denne model (§ 2.7, #56): kun udskæring, krog, bin, fag og plads; kapaciteten bliver 1, og en udskæring uden mål får modellens"
+              },
+              "boern": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Skabelonbarn"
+                }
+              }
+            }
+          }
+        ],
+        "description": "Et barn i en skabelon: en skabelon eller en type, plus Geometri-felterne direkte (z_mm, celle_x …). Skuffer uden z_mm stables oppefra, hylder uden z_mm fordeles, og et raster lægges midt i forælderen."
+      },
+      "Skabelonparameter": {
         "type": "object",
         "properties": {
-          "skabelon": {
-            "type": [
-              "integer",
-              "string"
-            ],
-            "description": "En anden skabelon (id eller nøgle)"
+          "navn": {
+            "type": "string"
           },
           "type": {
             "type": "string",
             "enum": [
-              "sted",
-              "bygning",
-              "rum",
-              "omraade",
-              "vaeg",
-              "reol",
-              "skab",
-              "plade",
-              "hylde",
-              "skuffe",
-              "grid",
-              "skum",
-              "bin",
-              "udskaering",
-              "krog",
-              "fag",
-              "plads",
-              "beholder"
+              "heltal",
+              "tal",
+              "tekst",
+              "tekster",
+              "valg",
+              "ja_nej",
+              "modeller"
             ],
-            "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
+            "description": "modeller: en liste af model-id'er (fx skum skåret efter værktøjet)"
+          },
+          "felt": {
+            "type": "string",
+            "description": "Stien i skabelonen, værdien sættes ind på: bredde_mm, egenskaber.kolonner, boern.0.antal, boern.0.egenskaber.raster_x_mm"
+          },
+          "felter": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Flere stier med samme værdi (fx raster_x_mm og raster_y_mm)"
+          },
+          "enhed": {
+            "type": "string"
+          },
+          "min": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "standard": {
+            "description": "Bruges, når værdien ikke sendes"
+          },
+          "valg": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "paakraevet": {
+            "type": "boolean"
+          },
+          "beskrivelse": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "navn",
+          "type"
+        ],
+        "description": "En parameter (#56): ingen udtryk, kun indsættelse; den færdige skabelon tjekkes som enhver anden"
+      },
+      "Ting": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "navn": {
             "type": [
@@ -13290,18 +16975,125 @@
               "null"
             ]
           },
-          "kode_suffiks": {
-            "type": "string",
-            "description": "Lægges på den nærmeste kode over barnet (S1 + 1 = S1-1); uden foreslår kernen den næste"
+          "bredde_mm": {
+            "type": [
+              "integer",
+              "null"
+            ]
           },
-          "antal": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 100,
-            "description": "Gentag barnet (fx 5 hylder uden z: de fordeles)"
+          "dybde_mm": {
+            "type": [
+              "integer",
+              "null"
+            ]
           },
-          "egenskaber": {
-            "type": "object"
+          "hoejde_mm": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "Pladsvurdering": {
+        "type": "object",
+        "properties": {
+          "lokation": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "type": {
+                "type": "string"
+              },
+              "kode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "navn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sti": {
+                "type": "string"
+              }
+            }
+          },
+          "indre": {
+            "type": "object",
+            "properties": {
+              "bredde_mm": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "dybde_mm": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "hoejde_mm": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            }
+          },
+          "passer": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Grundfladen afgør; null: bredde eller dybde mangler. Højden tæller kun, når begge højder kendes (hoejdeAfgjort)"
+          },
+          "hoejdeAfgjort": {
+            "type": "boolean",
+            "description": "Højden er holdt op mod pladsen; false, når tingens eller pladsens højde ikke kendes"
+          },
+          "drejet": {
+            "type": "boolean",
+            "description": "Tingen skal drejes 90° (bredde og dybde byttet)"
+          },
+          "luft": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "bredde_mm": {
+                "type": "integer"
+              },
+              "dybde_mm": {
+                "type": "integer"
+              },
+              "hoejde_mm": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            }
+          },
+          "grund": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "egenPlads": {
+            "type": "boolean",
+            "description": "En fast plads til netop denne model"
+          },
+          "enheder": {
+            "type": "integer"
           },
           "kapacitet": {
             "type": [
@@ -13309,14 +17101,10 @@
               "null"
             ]
           },
-          "boern": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Skabelonbarn"
-            }
+          "planlagt": {
+            "type": "boolean"
           }
-        },
-        "description": "Et barn i en skabelon: en skabelon eller en type, plus Geometri-felterne direkte (z_mm, celle_x …). Skuffer uden z_mm stables oppefra, hylder uden z_mm fordeles, og et raster lægges midt i forælderen."
+        }
       },
       "Skabelon": {
         "type": "object",
@@ -13451,6 +17239,24 @@
               "integer",
               "null"
             ]
+          },
+          "parametre": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Skabelonparameter"
+            },
+            "description": "Værdier, der sættes ind ved oprettelsen (#56); {} = ingen"
+          },
+          "familie": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "De indbyggedes familie (filen: gridfinity, ikea-metod, egne-maal …)"
+          },
+          "fravalgt": {
+            "type": "boolean",
+            "description": "En indbygget, der er slået fra for installationen eller lageret"
           },
           "kilde": {
             "type": "string",
@@ -13794,6 +17600,7 @@
                     "aendret",
                     "andre_planer",
                     "zone",
+                    "celler",
                     "kollision",
                     "udenfor",
                     "gang",
@@ -13834,6 +17641,7 @@
                     "aendret",
                     "andre_planer",
                     "zone",
+                    "celler",
                     "kollision",
                     "udenfor",
                     "gang",
@@ -13874,6 +17682,7 @@
                     "aendret",
                     "andre_planer",
                     "zone",
+                    "celler",
                     "kollision",
                     "udenfor",
                     "gang",
@@ -14088,6 +17897,243 @@
               "null"
             ],
             "description": "Varens enhed (stk, m …)"
+          }
+        }
+      },
+      "Udlaan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "lagerId": {
+            "type": "integer"
+          },
+          "laaner": {
+            "type": "object",
+            "properties": {
+              "navn": {
+                "type": "string"
+              },
+              "telefon": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "mail": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "navn"
+            ]
+          },
+          "forventetRetur": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ÅÅÅÅ-MM-DD"
+          },
+          "siden": {
+            "type": "string"
+          },
+          "paamind": {
+            "type": "boolean",
+            "description": "Den, der lånte ud, har slået påmindelsen på mail til låneren til for dette udlån (opt-in, standard fra)"
+          },
+          "paamindetSidst": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paamindelser": {
+            "type": "integer"
+          },
+          "paamindAfmeldt": {
+            "type": "boolean",
+            "description": "Låneren har sagt nej tak: påmindelsen kan ikke slås til igen for dette udlån (409)"
+          },
+          "link": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "udloeber": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lånerens link: kun at der er et, og hvornår det udløber. Tokenet ses kun, når linket laves"
+          },
+          "udlaantAf": {
+            "type": "string",
+            "description": "Kun i den lageransvarliges overblik"
+          },
+          "enheder": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tag": {
+                  "type": "string"
+                },
+                "navn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kategori": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "forventetRetur": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "siden": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "delAf": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Sættet, enheden følger med (afleveres med sættet)"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Kanbankort": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "lagerId": {
+            "type": "integer"
+          },
+          "kode": {
+            "type": "string",
+            "description": "Kortets kode på etiketten: KB- og de første 8 tegn af det offentlige id (ikke en nøgle)"
+          },
+          "vare": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "navn": {
+                "type": "string"
+              },
+              "varenr": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "enhed": {
+                "type": "string"
+              }
+            }
+          },
+          "lokation": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "sti": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Stien uden lagerets rod"
+              }
+            }
+          },
+          "antal": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000,
+            "description": "Hvad en tom kasse bestiller"
+          },
+          "virker": {
+            "type": "boolean",
+            "description": "Kortet virker lige nu: ikke kaldt tilbage, varen aktiv og på en aktiv lokation"
+          },
+          "aaben": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "bestillingId": {
+                    "type": "integer"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "bestilt",
+                      "sendt"
+                    ]
+                  },
+                  "antal": {
+                    "type": "integer"
+                  },
+                  "gentaget": {
+                    "type": "integer",
+                    "description": "Scan efter det første, mens den var åben"
+                  },
+                  "siden": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Den åbne genbestilling fra kortet; højst én"
+          },
+          "scanninger": {
+            "type": "integer"
+          },
+          "sidstScannet": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "oprettet": {
+            "type": "string"
+          },
+          "af": {
+            "type": "string"
+          },
+          "tilbagekaldt": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       }

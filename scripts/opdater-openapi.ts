@@ -8,13 +8,13 @@
  *
  * Kortet er offentligt (det røber kun formen), men øjebliksbilledet skal kunne stå i
  * et offentligt repo: servers sættes til en pladsholder, og kun det, serveren bruger
- * (paths og components.schemas), gemmes. Kør derefter `npm test`: test/openapi.test.ts
+ * (paths og components.schemas), gemmes; operationernes `x-mcp` følger med. Kør derefter `npm test`: test/openapi.test.ts
  * siger, hvilke værktøjer der peger på noget, der er forsvundet, og hvilke nye
  * operationer der hverken har et værktøj eller en grund til at mangle ét.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { fund, goerNeutral } from './neutral.js';
+import { fund } from './neutral.js';
 
 const kilde = process.argv[2] ?? process.env.LAGER_BASE_URL;
 if (!kilde) {
@@ -43,9 +43,9 @@ const ud = {
   paths: Object.fromEntries(Object.entries(doc.paths).sort(([a], [b]) => a.localeCompare(b))),
   components: { schemas: doc.components?.schemas ?? {} },
 };
-// Installationens egne eksempler gøres neutrale; står der derefter en vært, en mailadresse,
-// et forbudt navn eller «hos Fornavn», gemmes intet (scripts/neutral.ts).
-const tekst = goerNeutral(JSON.stringify(ud, null, 2));
+// Står der en vært, en mailadresse, et forbudt navn eller «hos Fornavn», gemmes intet
+// (scripts/neutral.ts): kortet rettes i backenden, ikke her.
+const tekst = JSON.stringify(ud, null, 2);
 const forbudt = fund(tekst);
 if (forbudt.length) {
   console.error(`Kortet nævner ${forbudt.join(', ')}; ret det i backenden, før øjebliksbilledet gemmes.`);

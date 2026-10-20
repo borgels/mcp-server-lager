@@ -7,7 +7,7 @@
  */
 import { z } from 'zod/v4';
 import type { LagerClient } from '../lager/client.js';
-import type { OpNoegle } from '../openapi/spec.js';
+import { udenVaerktoejIKortet, type OpNoegle } from '../openapi/spec.js';
 
 export type Input = Record<string, unknown>;
 export type Sender = (op: OpNoegle, input: Input) => Promise<unknown>;
@@ -75,6 +75,11 @@ export const FAELLES_BESKRIVELSER: Record<string, string> = {
   kategoriskabelonId: 'Kategoriskabelonens id (se lager_kategoriskabeloner).',
   alarmId: 'Alarmens id (se lager_iot_alarmer).',
   alarmregelId: 'Alarmreglens id (se lager_iot_alarmregler).',
+  placeringsregelId: 'Placeringsreglens id (se lager_placeringsregler).',
+  procesflowId: 'Procesflowets id (se lager_procesflows).',
+  forloebId: 'Forløbets id (se lager_procesforloeb).',
+  udlaanId: 'Udlånets id (se lager_udlaan).',
+  kanbanId: 'Kanbankortets id, KB-<id> på etiketten (se lager_ansvarlig_kanban).',
   fra: 'ÅÅÅÅ-MM-DD',
   til: 'ÅÅÅÅ-MM-DD',
   dato: 'ÅÅÅÅ-MM-DD',
@@ -82,8 +87,12 @@ export const FAELLES_BESKRIVELSER: Record<string, string> = {
 
 export const FAELLES_ALIAS: Record<string, string> = { lager: 'lagerId', projekt: 'projektId', model: 'modelId', lokation: 'lokationId' };
 
-/** Operationer i kortet, der med vilje ikke er et værktøj, med grunden. */
-export const UDEN_VAERKTOEJ: Partial<Record<OpNoegle, string>> = {
+/**
+ * Operationer i kortet, der med vilje ikke er et værktøj, med grunden: dem,
+ * serveren her tager stilling til. Dem, lageret selv har markeret med
+ * `x-mcp: { vaerktoej: false, grund }`, står ikke her (UDEN_VAERKTOEJ_I_KORTET).
+ */
+export const UDEN_VAERKTOEJ_HER: Partial<Record<OpNoegle, string>> = {
   'POST /auth/link': 'Login med magic link: hører til appen, ikke til en agent.',
   'POST /auth/indloes': 'Login med magic link: hører til appen, ikke til en agent.',
   'POST /auth/forny': 'Login med magic link: hører til appen, ikke til en agent.',
@@ -142,7 +151,18 @@ export const UDEN_VAERKTOEJ: Partial<Record<OpNoegle, string>> = {
   'GET /ansvarlig/vedligehold/typer': 'Vedligehold får egne værktøjer i en senere runde; indtil da i appen.',
   'POST /ansvarlig/vedligehold/typer': 'Opgavetyper er installationens opsætning i appen.',
   'PUT /ansvarlig/vedligehold/typer/{id}': 'Opgavetyper er installationens opsætning i appen.',
+  'DELETE /udlaan/{id}/link': 'Lånerens link hører til appen, hvor det laves og deles; en agent rører hverken linket eller dets token.',
+  'GET /iot/kameraer/{id}/billede': 'Et stillbillede (binært), ikke JSON, og kun i lager-appen: backenden afviser kald gennem MCP-gatewayen (403).',
+  'POST /iot/kameraer/{id}/live': 'En strømbillet til appens afspiller (kun med en session, ikke gennem MCP-gatewayen); intet for en agent.',
+  'GET /iot/kameraer/{id}/live/{billet}': 'Live-video (binær strøm bag en billet); intet for en agent.',
+  'GET /iot/kameraer/{id}/hls/{billet}': 'En del af en HLS-strøm (binær, bag en billet); intet for en agent.',
 };
+
+/** Lagerets egne markeringer (x-mcp) i openapi/lager.json. */
+export const UDEN_VAERKTOEJ_I_KORTET: Partial<Record<OpNoegle, string>> = udenVaerktoejIKortet();
+
+/** Alle operationer i kortet, der med vilje ikke er et værktøj, med grunden. */
+export const UDEN_VAERKTOEJ: Partial<Record<OpNoegle, string>> = { ...UDEN_VAERKTOEJ_I_KORTET, ...UDEN_VAERKTOEJ_HER };
 
 export const KATALOG: ToolSpec[] = [
   // ---------------------------------------------------------------- læs: brugeren
@@ -336,6 +356,64 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_batteri', titel: 'Ét batteri', op: 'GET /batterier/{tag}',
     beskrivelse: 'Ét batteri med opladningsloggen og værktøjerne, det passer i. For et værktøj: batterierne, der passer i det.',
     kort: 'Ét batteri med opladningslog, eller batterierne til et værktøj.', eksempler: ['hvornår er T-00055 sidst ladet', 'hvilke batterier passer til T-00012'] },
+
+  // ---------------------------------------------------------------- læs: placeringsregler og procesflows
+  { navn: 'lager_placeringsregler', titel: 'Placeringsregler', op: 'GET /placeringsregler',
+    beskrivelse: 'Reglerne for, hvad der skal stå hvor (skal_staa), og hvad et sted kun er til (kun), udtrykt som evner på lokationerne: hvem de gælder (asbest, kategorier), stederne og grunden. Installationens og lagrenes egne, også de indbyggede.',
+    kort: 'Placeringsregler: hvad der skal stå hvor, og hvad et sted kun er til.', eksempler: ['hvor skal asbestudstyr stå', 'hvilke regler gælder for proceszonen'] },
+  { navn: 'lager_placeringsafvigelser', titel: 'Placeringsafvigelser', op: 'GET /placeringsregler/afvigelser',
+    beskrivelse: 'Enheder, der står et sted, reglerne (eller deres forløbs trin) ikke tillader, og enheder, hvis models hårde krav til evner ikke er opfyldt på hjemmepladsen. Kun til at læse; ret med lager_ansvarlig_saet_paa_plads eller i appen.',
+    kort: 'Enheder, der står forkert efter placeringsreglerne eller modellens krav.', eksempler: ['står noget forkert', 'er asbestudstyret de rigtige steder'] },
+  { navn: 'lager_procesflows', titel: 'Procesflows', op: 'GET /procesflows',
+    beskrivelse: 'Procesflowene med trinene (fx karantæne → rengøring → frigivelse): hvornår de starter, hvor enheden skal stå i hvert trin, hvem der udfører det, tjekliste og certificering. Installationens og lagrenes egne.',
+    kort: 'Procesflows: trinene fra retur til frigivelse (fx rengøring af asbestudstyr).', eksempler: ['hvordan frigives asbestudstyr', 'hvilke trin har rengøringsflowet'] },
+  { navn: 'lager_procesforloeb', titel: 'Procesforløb', op: 'GET /procesforloeb',
+    beskrivelse: 'Forløbene på dine lagre (de aktive som standard): enheden, flowet, trinnet nu og de næste. Trinnets nøgle bruges i lager_procesforloeb_udfoer.',
+    kort: 'Aktive procesforløb: hvilke enheder er i karantæne eller klargøring, og på hvilket trin.', eksempler: ['hvad venter på rengøring', 'hvor langt er T-00012 i forløbet'] },
+  { navn: 'lager_procesforloeb_log', titel: 'Et procesforløb med log', op: 'GET /procesforloeb/{id}', alias: { id: 'forloebId' },
+    beskrivelse: 'Ét forløb med loggen: hvert trin med hvem, hvornår, noten, de afkrydsede punkter og certificeringen (dokumentationen, fx til asbest).',
+    kort: 'Et procesforløbs log: hvem udførte hvert trin, og hvornår.', eksempler: ['hvem rengjorde T-00012', 'dokumentation for frigivelsen'] },
+
+  // ---------------------------------------------------------------- læs: udlån, kanban, stregkoder og kameraer
+  { navn: 'lager_udlaan', titel: 'Mine udlån', op: 'GET /udlaan',
+    beskrivelse: 'Dine åbne udlån til personer uden konto: hvem har hvad, kontakten, forventet retur og påmindelsen. Lånerens link vises kun som «der er et» og udløbet. Et udlån lægges an af lager_tjek_ud med laaner og lukkes, når det sidste er afleveret.',
+    kort: 'Dine udlån til personer uden konto: hvem har hvad, og hvornår det kommer retur.', eksempler: ['hvad har jeg lånt ud', 'hvornår kommer stigen retur'] },
+  { navn: 'lager_udlaan_et', titel: 'Ét udlån', op: 'GET /udlaan/{id}', alias: { id: 'udlaanId' },
+    beskrivelse: 'Ét af dine åbne udlån med enhederne, kontakten og forventet retur.',
+    kort: 'Ét af dine udlån.', eksempler: ['vis udlån 3'] },
+  { navn: 'lager_ansvarlig_udlaan', titel: 'Lageransvarlig: lagerets udlån', op: 'GET /ansvarlig/udlaan',
+    beskrivelse: 'Lagerets åbne udlån til personer uden konto: hvem har lånt hvad af hvem, med kontakten. Rettes af den, der lånte ud.',
+    kort: 'Lageransvarlig: alle åbne udlån til personer uden konto.', eksempler: ['hvad er lånt ud fra lageret'] },
+  { navn: 'lager_ansvarlig_kanban', titel: 'Lageransvarlig: kanbankort', op: 'GET /ansvarlig/kanban', alias: { vare: 'forbrugsvareId' },
+    beskrivelse: 'Kanbankortene (2-bin-genbestilling), der ikke er kaldt tilbage, med vare, lokation, antal og status (åben genbestilling, scan). forbrugsvareId: kun kortene for den vare på alle dine lagre; ellers lagerId. Intet token.',
+    kort: 'Lageransvarlig: kanbankort til genbestilling og deres status.', eksempler: ['hvilke kanbankort er meldt tomme', 'har skruerne et kanbankort'] },
+  { navn: 'lager_ansvarlig_kanban_et', titel: 'Lageransvarlig: ét kanbankort', op: 'GET /ansvarlig/kanban/{id}', alias: { id: 'kanbanId' },
+    beskrivelse: 'Ét kanbankort (også et, der er kaldt tilbage), uden token.',
+    kort: 'Lageransvarlig: ét kanbankort.', eksempler: ['vis kort KB-12'] },
+  { navn: 'lager_stregkode', titel: 'Slå en stregkode op', op: 'GET /stregkoder/{kode}',
+    beskrivelse: 'Hvilken forbrugsvare har stregkoden (EAN-13, EAN-8, UPC-A, UPC-E eller GTIN-14) i lagerets selskab? Ingen priser. 404: ingen vare har den (se lager_ansvarlig_produktopslag for et navneforslag).',
+    kort: 'Hvilken forbrugsvare har en stregkode (EAN/GTIN).', eksempler: ['hvad er 5701234567892'],
+    beskriv: { kode: 'Stregkoden: EAN-13, EAN-8, UPC-A, UPC-E eller GTIN-14 (cifre).' } },
+  { navn: 'lager_ansvarlig_produktopslag', titel: 'Lageransvarlig: produktopslag på stregkode', op: 'GET /ansvarlig/produktopslag/{kode}',
+    beskrivelse: 'Forslag til en ny vares navn ud fra stregkoden hos installationens eksterne kilder (standard Open Food Facts og Open Products Facts). Stregkoden sendes til kilden; intet gemmes. forslag er null, når ingen kilde kender koden.',
+    kort: 'Lageransvarlig: navneforslag til en ny vare ud fra stregkoden (eksterne kilder).', eksempler: ['hvad hedder varen med stregkode 5701234567892'],
+    beskriv: { kode: 'Stregkoden: EAN-13, EAN-8, UPC-A, UPC-E eller GTIN-14 (cifre).' } },
+  { navn: 'lager_iot_kameraer', titel: 'Kameraer', op: 'GET /iot/kameraer',
+    beskrivelse: 'Kameraerne, du må se, på dine lagre: navn, lokation, og hvad hvert kan vise (billede, live-formater). Billedet og live-video ses i lager-appen, ikke her. Aldrig en adresse, et brugernavn eller et token.',
+    kort: 'Kameraerne på lagrene, og hvad de kan vise (ses i appen).', eksempler: ['hvilke kameraer er der i containeren'] },
+
+  // ---------------------------------------------------------------- læs: indretning (mål og pladser)
+  { navn: 'lager_find_plads', titel: 'Find en plads', op: 'GET /lokationer/find-plads', alias: { rod: 'rodId', plan: 'scenarieId' },
+    beskrivelse: 'Hvor er der plads til en ting? Hylder, skuffer, fag, bins og kasser, hvor en model (med mål, se lager_ansvarlig_model_maal) eller mål i mm passer: modellens egne faste pladser først, så de tætteste. Faste pladser til andre modeller og fulde pladser udelades; ukendte: true tager også pladser med, hvor et mål mangler, til sidst.',
+    kort: 'Find hylder, skuffer og bins, hvor en model eller mål passer.', eksempler: ['hvor kan boremaskinen stå', 'en plads til en kasse på 40 × 30 × 20 cm'],
+    beskriv: { rodId: 'Kun under denne lokation (lokations-id).', scenarieId: 'Regn på et scenarie: også planlagte hylder og kasser.' } },
+  { navn: 'lager_lokation_passer', titel: 'Passer det her?', op: 'GET /lokationer/{id}/passer', alias: { id: 'lokationId', plan: 'scenarieId' },
+    beskrivelse: 'Passer en model (med mål) eller mål i mm i lokationens indre mål? Drejes om den lodrette akse, hvis det hjælper. En fast plads passer kun til sin egen model, og en fuld plads ikke. passer er null, når bredde eller dybde mangler.',
+    kort: 'Passer en model eller mål i en bestemt hylde, skuffe eller kasse.', eksempler: ['kan stigen ligge på hylde A-12-3', 'passer kassen i skuffe 2'],
+    beskriv: { scenarieId: 'Regn på et scenaries træ.' } },
+  { navn: 'lager_ansvarlig_skabelon_fravalg', titel: 'Lageransvarlig: fravalgte skabeloner', op: 'GET /ansvarlig/skabeloner/fravalg',
+    beskrivelse: 'De indbyggede skabeloners familier med antal og eksempler, og hvad der er slået fra for installationen og lageret.',
+    kort: 'Lageransvarlig: hvilke indbyggede skabeloner er slået fra.', eksempler: ['hvilke skabelonfamilier er slået fra'] },
 
   // ---------------------------------------------------------------- læs: scenarier (planlægning)
   { navn: 'lager_scenarier', titel: 'Scenarier', op: 'GET /scenarier',
@@ -574,4 +652,57 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_ansvarlig_iot_luftkvalitetsregler', titel: 'Lageransvarlig: standardregler for luftkvalitet', op: 'POST /iot/lokationer/{id}/luftkvalitetsregler', alias: { id: 'lokationId' }, idempotent: true,
     beskrivelse: 'Opret standardens alarmregler for luftkvalitet på lokationen: én over-regel pr. metrik, den måler (eller dem i metrikker). En metrik med en aktiv over-regel springes over.',
     kort: 'Lageransvarlig: opret standardalarmer for CO₂, VOC og partikler i et rum.', eksempler: ['giv værkstedet alarmer for luftkvalitet'] },
+
+  // ---------------------------------------------------------------- skriv: placeringsregler og procesflows
+  { navn: 'lager_ansvarlig_placeringsregel_opret', titel: 'Lageransvarlig: ny placeringsregel', op: 'POST /ansvarlig/placeringsregler',
+    beskrivelse: 'Ny placeringsregel: skal_staa (det, reglen gælder, skal stå et sted med evnerne) eller kun (stedet er kun til det). hvem: asbest og/eller kategorier; steder: evnetypernes nøgler (se lager_evnetyper). Med lagerId lagerets egen; lagerId: null er hele installationens (kræver lageransvarlig på alle lagre).',
+    kort: 'Lageransvarlig: opret en placeringsregel (hvad skal stå hvor).', eksempler: ['batterier skal stå et sted med brandsikring'] },
+  { navn: 'lager_ansvarlig_placeringsregel_ret', titel: 'Lageransvarlig: ret placeringsregel', op: 'PATCH /ansvarlig/placeringsregler/{id}', alias: { id: 'placeringsregelId' }, destruktiv: true,
+    beskrivelse: 'Ret en placeringsregel eller slå den fra (aktiv: false), også de indbyggede. Nøglen ligger fast. At slå en regel, der dækker asbestudstyr, fra eller rette den væk fra asbest er sikkerhedsrelevant: forklar brugeren følgen, og send kun bekraeft: true efter brugerens udtrykkelige ja (ellers 409).',
+    kort: 'Lageransvarlig: ret eller slå en placeringsregel fra.', eksempler: ['reglen for batterier gælder kun lager 2'],
+    beskriv: { bekraeft: 'true kun efter brugerens udtrykkelige ja til at slå en asbestregel fra eller rette den væk fra asbest.' } },
+  { navn: 'lager_ansvarlig_procesflow_opret', titel: 'Lageransvarlig: nyt procesflow', op: 'POST /ansvarlig/procesflows',
+    beskrivelse: 'Nyt procesflow: status (karantaene eller til_klargoering), hvornår det starter (ved retur, evt. kun skadet eller for asbest/kategorier, eller manuelt) og trinene med sted, hvem der udfører dem, tjekliste og certificering. Det sidste trin er frigivelsen. Med lagerId lagerets eget; lagerId: null er hele installationens (kræver lageransvarlig på alle lagre).',
+    kort: 'Lageransvarlig: opret et procesflow (fx rengøring før frigivelse).', eksempler: ['skadet værktøj skal efterses før det kommer på hylden'] },
+  { navn: 'lager_ansvarlig_procesflow_ret', titel: 'Lageransvarlig: ret procesflow', op: 'PATCH /ansvarlig/procesflows/{id}', alias: { id: 'procesflowId' }, destruktiv: true,
+    beskrivelse: 'Ret et procesflow eller slå det fra (aktiv: false). Et trin, et aktivt forløb står på, kan ikke fjernes, og status kan ikke ændres med aktive forløb (409). At slå et flow, der dækker asbestudstyr, fra eller rette det væk fra asbest er sikkerhedsrelevant: forklar brugeren følgen, og send kun bekraeft: true efter brugerens udtrykkelige ja.',
+    kort: 'Lageransvarlig: ret eller slå et procesflow fra.', eksempler: ['rengøringen skal have et punkt mere på tjeklisten'],
+    beskriv: { bekraeft: 'true kun efter brugerens udtrykkelige ja til at slå et asbestflow fra eller rette det væk fra asbest.' } },
+  { navn: 'lager_ansvarlig_procesforloeb_start', titel: 'Lageransvarlig: start procesforløb', op: 'POST /ansvarlig/procesforloeb',
+    beskrivelse: 'Start et flow i hånden på en enhed: enheden spærres med flowets status (karantæne eller klargøring), og forløbet står på første trin. Bekræft med brugeren først.',
+    kort: 'Lageransvarlig: sæt en enhed i et procesflow (spærrer den).', eksempler: ['T-00012 skal rengøres før den lånes ud igen'],
+    beskriv: { flow: 'Flowets id eller nøgle (se lager_procesflows).' } },
+  { navn: 'lager_procesforloeb_udfoer', titel: 'Udfør et trin i procesforløbet', op: 'POST /procesforloeb/{id}/udfoer', alias: { id: 'forloebId' }, destruktiv: true,
+    beskrivelse: 'Udfør trinnet, forløbet står på (trin = nøglen fra lager_procesforloeb). Tjeklistens påkrævede punkter (tjekket) og trinnets certificering skal med; et trin for den lageransvarlige kræver hende. Det sidste trin er frigivelsen: enheden kan bruges igen. Sikkerhedsrelevant (fx asbest): bekræft altid med brugeren før kaldet, at trinnet er udført, hvert punkt, du krydser af, og certificeringen. Kryds aldrig noget af og bekræft aldrig en certificering, brugeren ikke selv har bekræftet. Står i loggen med brugerens navn.',
+    kort: 'Udfør et trin i et procesforløb (rengøring, eftersyn, frigivelse).', eksempler: ['T-00012 er rengjort', 'frigiv T-00012 efter rengøringen'],
+    beskriv: {
+      tjekket: 'Nøglerne på de tjeklistepunkter, brugeren har bekræftet er udført.',
+      certificeret: 'true kun når brugeren selv har bekræftet trinnets certificering.',
+    } },
+
+  // ---------------------------------------------------------------- skriv: udlån, kanban og stregkoder
+  { navn: 'lager_udlaan_ret', titel: 'Ret et udlån', op: 'PATCH /udlaan/{id}', alias: { id: 'udlaanId' }, nullbar: ['forventetRetur', 'telefon', 'mail'],
+    beskrivelse: 'Ret et af dine åbne udlån: forventet retur (gælder også enhederne), kontakten (telefon, mail), og påmindelsen på mail til låneren. paamind: true sender låneren mail: kun efter brugerens udtrykkelige ja for netop dette udlån, og kræver en mail. Navnet rettes ikke; null sletter et felt.',
+    kort: 'Ret forventet retur, kontakt eller påmindelse på et udlån.', eksempler: ['stigen kommer først retur fredag', 'mind låneren om boret'] },
+  { navn: 'lager_ansvarlig_kanban_opret', titel: 'Lageransvarlig: nyt kanbankort', op: 'POST /ansvarlig/kanban',
+    beskrivelse: 'Et nyt kanbankort til en forbrugsvare på en lokation, der står på varen (se lager_ansvarlig_forbrugsvare_beholdninger), med antallet, der genbestilles, når kassen er tom. Flere kort til samme sted er tilladt (to kasser). Etiketten med QR-koden trykkes fra appen.',
+    kort: 'Lageransvarlig: opret et kanbankort (2-bin-genbestilling) til en vare.', eksempler: ['giv skruerne i bin K-17 et kanbankort på 500'] },
+  { navn: 'lager_ansvarlig_kanban_ret', titel: 'Lageransvarlig: ret kanbankort', op: 'PATCH /ansvarlig/kanban/{id}', alias: { id: 'kanbanId' },
+    beskrivelse: 'Ret kortets antal. En åben genbestilling beholder sit.',
+    kort: 'Lageransvarlig: ret antallet på et kanbankort.', eksempler: ['kort KB-12 skal bestille 1000'] },
+  { navn: 'lager_ansvarlig_kanban_tilbagekald', titel: 'Lageransvarlig: kald kanbankort tilbage', op: 'DELETE /ansvarlig/kanban/{id}', alias: { id: 'kanbanId' },
+    beskrivelse: 'Kald kortet tilbage: det trykte kort virker ikke mere og kan ikke genoplives. En åben genbestilling bliver stående. Bekræft med brugeren først.',
+    kort: 'Lageransvarlig: kald et kanbankort tilbage (det trykte kort holder op med at virke).', eksempler: ['kort KB-12 er væk, kald det tilbage'] },
+  { navn: 'lager_ansvarlig_forbrugsvare_stregkoder', titel: 'Lageransvarlig: varens stregkoder', op: 'PUT /ansvarlig/forbrugsvarer/{id}/stregkoder', alias: { id: 'forbrugsvareId' }, destruktiv: true,
+    beskrivelse: 'Sæt forbrugsvarens stregkoder: listen er hele sættet og erstatter de gemte ([] fjerner alle; bekræft med brugeren før du fjerner nogen). Samme kode i to former er én; højst 20. 409: koden står på en anden vare.',
+    kort: 'Lageransvarlig: sæt en forbrugsvares stregkoder (EAN/GTIN).', eksempler: ['kabelbinderne har stregkoden 5701234567892'] },
+
+  // ---------------------------------------------------------------- skriv: indretning (mål og skabeloner)
+  { navn: 'lager_ansvarlig_model_maal', titel: 'Lageransvarlig: modellens mål', op: 'PUT /ansvarlig/modeller/{id}/maal', alias: { id: 'modelId' },
+    nullbar: ['bredde_mm', 'dybde_mm', 'hoejde_mm', 'omrids'],
+    beskrivelse: 'Modellens mål i hele mm, som tingen ligger, og valgfrit et omrids set oppefra (til skum skåret efter værktøjet). Felterne, der er med, erstattes; null fjerner et mål. Bruges af lager_find_plads og lager_lokation_passer.',
+    kort: 'Lageransvarlig: sæt en models mål (bredde, dybde, højde i mm).', eksempler: ['boremaskinen er 30 × 25 × 9 cm'] },
+  { navn: 'lager_ansvarlig_skabelon_fravalg_saet', titel: 'Lageransvarlig: slå skabelon fra eller til', op: 'PUT /ansvarlig/skabeloner/fravalg',
+    beskrivelse: 'Slå en indbygget skabelon (noegle) eller en hel familie fra eller til, for lageret eller hele installationen (installation: true kræver lageransvarlig på alle lagre). En fravalgt vises ikke i biblioteket og oprettes ikke direkte; som barn af en anden skabelon virker den stadig.',
+    kort: 'Lageransvarlig: skjul eller vis indbyggede skabeloner i biblioteket.', eksempler: ['vi bruger ikke skuffereoler, skjul dem'] },
 ];
