@@ -7,6 +7,12 @@ export interface LagerClientOptions {
   baseUrl?: string;
   apiToken?: string;
   user?: string;
+  /**
+   * Resten af gatewayens verificerede identitet (X-MCP-Tenant, X-MCP-Oid, X-MCP-Name, X-MCP-Email).
+   * Appen slår personen op på tenant + object id; UPN'en alene rammer ikke en gæst, hvis
+   * gemte UPN er #EXT#-formen, og en ukendt gæst kan kun registreres med dem.
+   */
+  identity?: GatewayIdentity;
   timeoutMs?: number;
   fetchFn?: typeof fetch;
   /** Hvor mange gange et kald prøves igen efter 429 eller en forbigående fejl (standard 3). */
@@ -44,6 +50,14 @@ function fejlkode(e: unknown): string | undefined {
 
 type Query = Record<string, string | number | boolean | null | undefined | readonly (string | number)[]>;
 
+export interface GatewayIdentity {
+  tenantId?: string;
+  objectId?: string;
+  /** Som gatewayen sender den: URI-kodet. */
+  name?: string;
+  email?: string;
+}
+
 export class LagerApiError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -57,6 +71,7 @@ export class LagerClient {
   private readonly baseUrl: string;
   private readonly apiToken: string;
   readonly user: string;
+  private readonly identity: GatewayIdentity;
   private readonly timeoutMs: number;
   private readonly fetchFn: typeof fetch;
   private readonly maxRetries: number;
@@ -72,6 +87,7 @@ export class LagerClient {
     this.baseUrl = (options.baseUrl ?? process.env.LAGER_BASE_URL ?? '').replace(/\/+$/, '');
     this.apiToken = options.apiToken ?? process.env.LAGER_API_TOKEN ?? '';
     this.user = options.user ?? process.env.LAGER_DEFAULT_USER ?? '';
+    this.identity = options.identity ?? {};
     this.timeoutMs = options.timeoutMs ?? Number(process.env.LAGER_TIMEOUT_MS ?? 30_000);
     this.fetchFn = options.fetchFn ?? fetch;
     this.maxRetries = options.maxRetries ?? Number(process.env.LAGER_RETRY_MAX ?? 3);
@@ -140,6 +156,11 @@ export class LagerClient {
       'X-MCP-User': this.user,
       Accept: 'application/json',
     };
+    const { tenantId, objectId, name, email } = this.identity;
+    if (tenantId) headers['X-MCP-Tenant'] = tenantId;
+    if (objectId) headers['X-MCP-Oid'] = objectId;
+    if (name) headers['X-MCP-Name'] = name;
+    if (email) headers['X-MCP-Email'] = email;
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';
       // Én nøgle pr. skrivning, den samme ved hvert nyt forsøg.
