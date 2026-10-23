@@ -16,6 +16,21 @@ describe('LagerClient', () => {
     expect(h['Idempotency-Key']).toMatch(/^mcp-/);
     expect(init.method).toBe('POST');
   });
+  it('sender gatewayens tenant, object id, navn og mail med, så appen kan finde en gæst', async () => {
+    const fetchFn = vi.fn(async () => svar(200, {}));
+    const identity = { tenantId: 't-1', objectId: 'o-1', name: 'Anne%20Gr%C3%B8n', email: 'anne@example.com' };
+    const c = new LagerClient({ baseUrl: 'https://lager.test', apiToken: 'tok', user: 'anne@example.com', identity, fetchFn: fetchFn as unknown as typeof fetch });
+    await c.get('/me');
+    const h = (fetchFn.mock.calls[0] as unknown as [URL, RequestInit])[1].headers as Record<string, string>;
+    expect(h).toMatchObject({ 'X-MCP-Tenant': 't-1', 'X-MCP-Oid': 'o-1', 'X-MCP-Name': 'Anne%20Gr%C3%B8n', 'X-MCP-Email': 'anne@example.com' });
+  });
+  it('udelader identitetshovederne, når gatewayen ikke har sendt dem', async () => {
+    const fetchFn = vi.fn(async () => svar(200, {}));
+    const c = new LagerClient({ baseUrl: 'https://lager.test', apiToken: 'tok', user: 'u', fetchFn: fetchFn as unknown as typeof fetch });
+    await c.get('/me');
+    const h = (fetchFn.mock.calls[0] as unknown as [URL, RequestInit])[1].headers as Record<string, string>;
+    expect(Object.keys(h).filter(k => k.startsWith('X-MCP-') && k !== 'X-MCP-User')).toEqual([]);
+  });
   it('lægger forespørgselsparametre på og springer tomme over', async () => {
     const fetchFn = vi.fn(async () => svar(200, { enheder: [] }));
     const c = new LagerClient({ baseUrl: 'https://lager.test', apiToken: 'tok', user: 'u', fetchFn: fetchFn as unknown as typeof fetch });

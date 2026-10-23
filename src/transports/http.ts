@@ -65,7 +65,13 @@ const httpServer = createNodeServer(async (req, res) => {
     const forwarded = req.headers['x-mcp-user'];
     const user = typeof forwarded === 'string' && forwarded.trim() ? forwarded.trim() : undefined;
     if (!user) throw new HttpRequestError(401, 'X-MCP-User mangler');
-    const mcpServer = await createServerMedModuler({ clientOptions: { user }, moduler });
+    // Resten af den verificerede identitet går videre, så appen finder personen på tenant + object id.
+    const header = (name: string) => {
+      const v = req.headers[name];
+      return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+    };
+    const identity = { tenantId: header('x-mcp-tenant'), objectId: header('x-mcp-oid'), name: header('x-mcp-name'), email: header('x-mcp-email') };
+    const mcpServer = await createServerMedModuler({ clientOptions: { user, identity }, moduler });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
