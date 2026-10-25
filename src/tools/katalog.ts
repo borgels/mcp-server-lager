@@ -187,9 +187,16 @@ export const UDEN_VAERKTOEJ_HER: Partial<Record<OpNoegle, string>> = {
   'POST /iot/kameraer/{id}/live': 'En strømbillet til appens afspiller (kun med en session, ikke gennem MCP-gatewayen); intet for en agent.',
   'GET /iot/kameraer/{id}/live/{billet}': 'Live-video (binær strøm bag en billet); intet for en agent.',
   'GET /iot/kameraer/{id}/hls/{billet}': 'En del af en HLS-strøm (binær, bag en billet); intet for en agent.',
+  'POST /ansvarlig/ai-indtag': 'Appens indtag med kamera og diktat: billedet går til driftens AI-udbyder. En agent er selv en model, der kan læse fotoet og sætningen, og forslaget gemmes alligevel med de andre værktøjer efter et menneskes ja.',
 };
 
-/** Lagerets egne markeringer (x-mcp) i openapi/lager.json. */
+/**
+ * Lagerets egne markeringer (x-mcp) i openapi/lager.json. Heriblandt koderne til et
+ * lejet rum (POST /lokationer/{id}/lejet/koder og PUT /ansvarlig/lokationer/{id}/lejet/koder,
+ * #199): adgangskoden og PIN'en må ALDRIG gå gennem MCP, hverken læst eller skrevet, og
+ * backenden afviser gatewayen. Får de engang ikke lagerets markering, skal de stå i
+ * UDEN_VAERKTOEJ_HER (test/openapi.test.ts kræver, at de altid er uden værktøj).
+ */
 export const UDEN_VAERKTOEJ_I_KORTET: Partial<Record<OpNoegle, string>> = udenVaerktoejIKortet();
 
 /** Alle operationer i kortet, der med vilje ikke er et værktøj, med grunden. */
@@ -306,6 +313,9 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_lokation_evner', titel: 'Lokationens evner', op: 'GET /lokationer/{id}/evner', alias: { id: 'lokationId' },
     beskrivelse: 'Lokationens evner (opladning, udsugning, strøm …): egne og arvede, med hvor de kommer fra. Med modelId: om modellens krav er opfyldt dér.',
     kort: 'En lokations evner, og om en models krav er opfyldt dér.', eksempler: ['kan batterierne lades på hylde A-12-3', 'har værkstedet udsugning'] },
+  { navn: 'lager_lejemaal', titel: 'Lejemålet på et lejet rum', op: 'GET /lokationer/{id}/lejet', alias: { id: 'lokationId' },
+    beskrivelse: 'Lejemålet på et depotrum eller en container: udbyder, anlæg, adresse, rum- eller containernummer, plads, adgangsmåder og -tider, kontakt, note og personerne med adgang. Kontrakten (nummer, pris pr. måned, periode, opsigelsesvarsel) kun for den lageransvarlige. lejemaal er null, når intet er skrevet. Koderne (adgangskode, PIN) står aldrig her og kan ikke hentes gennem dette værktøj: harAdgangskode og harPin siger kun, om de findes, og de ses i appen.',
+    kort: 'Lejemålet på et depotrum eller en container: udbyder, adgang, kontakt og kontrakt (ingen koder).', eksempler: ['hvem udlejer depotrummet', 'hvornår kan jeg komme ind i containeren', 'hvad koster depotrummet om måneden'] },
   { navn: 'lager_evnetyper', titel: 'Evnetyper', op: 'GET /evnetyper',
     beskrivelse: 'Evnetyperne (opladning, udsugning, strøm …) med parametrenes skema: installationens og lagrenes egne.',
     kort: 'Evnetyperne og deres parametre.', eksempler: ['hvilke evner kan en lokation have'] },
@@ -381,6 +391,12 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_ansvarlig_enhed_dokumenter', titel: 'Lageransvarlig: enhedens bilag', op: 'GET /ansvarlig/enheder/{tag}/dokumenter',
     beskrivelse: 'Enhedens egne bilag: kvittering, garanti, faktura, manual, attest, andet.',
     kort: 'Lageransvarlig: en enheds bilag (kvittering, garanti, manual).', eksempler: ['har T-00012 en kvittering', 'garantibevis for T-00012'] },
+  { navn: 'lager_ansvarlig_lokation_dokumenter', titel: 'Lageransvarlig: lokationens dokumenter', op: 'GET /ansvarlig/lokationer/{id}/dokumenter', alias: { id: 'lokationId' },
+    beskrivelse: 'Lokationens egne dokumenter, fx på et lejet depotrum eller en container: lejekontrakten, ordensreglerne, udbyderens plan.',
+    kort: 'Lageransvarlig: en lokations dokumenter (lejekontrakt, ordensregler).', eksempler: ['har vi lejekontrakten på depotrummet', 'ordensreglerne for containeren'] },
+  { navn: 'lager_ansvarlig_personer', titel: 'Lageransvarlig: personvælgeren', op: 'GET /ansvarlig/personer',
+    beskrivelse: 'Lagerets personer med id, navn og mail, søgt på navn eller mail (q). Kun aktive personer fra din konto. Id\'et bruges i adgang på lager_ansvarlig_lejemaal_ret.',
+    kort: 'Lageransvarlig: find en person på lageret (id, navn, mail).', eksempler: ['find Kim på lageret', 'hvem kan få adgang til depotrummet'] },
   { navn: 'lager_batterier', titel: 'Batterier', op: 'GET /batterier',
     beskrivelse: 'Batterierne på dine lagre: system, plads, seneste opladning, næste forfald og laderens hint, de forsinkede først. status: komma-liste af overskredet, snart, ukendt, ok, uden_interval.',
     kort: 'Batterier: hvornår de sidst er ladet, og hvilke der er forsinkede.', eksempler: ['hvilke batterier skal lades', 'batterier til system X'] },
@@ -666,6 +682,13 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_ansvarlig_enhed_dokument_tilfoej', titel: 'Lageransvarlig: bilag på enhed', op: 'POST /ansvarlig/enheder/{tag}/dokumenter',
     beskrivelse: 'Læg et link (https) som bilag på enheden: kvittering, garanti, faktura, manual, attest … Filer uploades i appen.',
     kort: 'Lageransvarlig: læg et link til manual, garanti eller kvittering på en enhed.', eksempler: ['læg manualen til T-00012 på enheden'] },
+  { navn: 'lager_ansvarlig_lokation_dokument_tilfoej', titel: 'Lageransvarlig: dokument på lokation', op: 'POST /ansvarlig/lokationer/{id}/dokumenter', alias: { id: 'lokationId' },
+    beskrivelse: 'Læg et link (https) som dokument på lokationen, fx lejekontrakten, ordensreglerne eller udbyderens plan på et depotrum eller en container. Filer uploades i appen.',
+    kort: 'Lageransvarlig: læg et link til lejekontrakt eller ordensregler på en lokation.', eksempler: ['læg lejekontrakten på depotrummet', 'gem linket til udbyderens ordensregler'] },
+  { navn: 'lager_ansvarlig_lejemaal_ret', titel: 'Lageransvarlig: ret lejemålet', op: 'PUT /ansvarlig/lokationer/{id}/lejet', alias: { id: 'lokationId' },
+    beskrivelse: 'Ret lejemålet på et depotrum eller en container: udbyder, anlæg, adresse, rum- eller containernummer, plads, adgangsmåder og -tider, kontakt, kontrakt, note og adgang. Kun felterne, der er med, ændres; null tømmer et felt. adgang ERSTATTER listen af personer med adgang: læs først de nuværende med lager_lejemaal, find nye med lager_ansvarlig_personer, og send den fulde liste; fjern kun en person efter brugerens udtrykkelige ja. version (fra lager_lejemaal) afviser en rettelse oven i en andens (409). Koderne (adgangskode, PIN) sættes aldrig her, kun i appen.',
+    kort: 'Lageransvarlig: ret lejemålet på et depotrum eller en container (ikke koderne).', eksempler: ['depotrummet er opsagt til 31. december', 'Kim skal have adgang til containeren', 'skriv udbyderens telefonnummer på depotrummet'],
+    beskriv: { adgang: 'Personernes id\'er (fra lager_ansvarlig_personer); ERSTATTER hele listen, så send også dem, der allerede har adgang (se lager_lejemaal).', version: 'Lejemålets version fra lager_lejemaal (409, hvis det er ændret siden).' } },
   { navn: 'lager_batteri_opladet', titel: 'Batteriet er opladet', op: 'POST /batterier/{tag}/opladet',
     beskrivelse: 'Registrér, at batteriet er ladet op (en linje i vedligeholdsloggen); næste forfald flytter sig. Alle medarbejdere på batteriets lager.',
     kort: 'Registrér, at et batteri er ladet op.', eksempler: ['T-00055 er ladet op'] },

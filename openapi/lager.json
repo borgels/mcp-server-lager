@@ -285,6 +285,279 @@
         }
       }
     },
+    "/ansvarlig/ai-indtag": {
+      "x-moduler": [
+        "ai_indtag"
+      ],
+      "post": {
+        "operationId": "lager_ansvarlig_ai_indtag",
+        "summary": "Forslag ud fra et foto og/eller en sætning («3 Makita 18V batterier 5Ah på hylde A-01-2»): model eller forbrugsvare, antal, egenskaber efter kategoriskabelonen, særhåndteringsmærker og lokation. Billedet sendes nedskaleret og uden metadata til driftens AI-udbyder. Intet gemmes: ret forslaget, få det bekræftet af et menneske, og gem det med POST /ansvarlig/modeller (og /ansvarlig/enheder) eller /ansvarlig/forbrugsvarer/modtag med Idempotency-Key",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "tekst": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "description": "Sætningen, skrevet eller dikteret"
+                  },
+                  "billede": {
+                    "type": "string",
+                    "description": "JPEG, PNG eller WebP som base64 (eller en data-URL), højst 12 MB"
+                  },
+                  "fotoId": {
+                    "type": "string",
+                    "description": "Et foto i fotolageret, der hører til noget på kalderens lagre (#121), i stedet for billede"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ forslag, uklart, udbyder }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "forslag": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "nr": {
+                            "type": "integer",
+                            "description": "Løbenummer i svaret"
+                          },
+                          "slags": {
+                            "type": "string",
+                            "enum": [
+                              "vaerktoej",
+                              "forbrugsvare"
+                            ],
+                            "description": "vaerktoej: en model med enheder (POST /ansvarlig/modeller og /ansvarlig/enheder); forbrugsvare: modtages (POST /ansvarlig/forbrugsvarer/modtag)"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "fabrikat": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "varenr": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "antal": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1000
+                          },
+                          "enhed": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "Kun forbrugsvarer (standard stk)"
+                          },
+                          "kategoriskabelon": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "Nøglen på en af lagerets kategoriskabeloner (#57)"
+                          },
+                          "kategoriskabelonId": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "egenskaber": {
+                            "type": "object",
+                            "description": "Kun skabelonens felter i deres type; resten er kasseret (se advarsler)"
+                          },
+                          "maerker": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "Aktive særhåndteringsmærker (#156)"
+                          },
+                          "placering": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "Lokationens kode, som modellen læste den"
+                          },
+                          "lokation": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "integer"
+                                  },
+                                  "kode": {
+                                    "type": "string"
+                                  },
+                                  "navn": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "type": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Lokationen med koden på lageret; null = ukendt eller ingen"
+                          },
+                          "serienumre": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "stregkoder": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "EAN/GTIN med rigtigt kontrolciffer (#53)"
+                          },
+                          "findes": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "integer"
+                                  },
+                                  "navn": {
+                                    "type": "string"
+                                  },
+                                  "enhed": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Modellen eller varen, forslaget passer på (varenummer, stregkode eller samme navn)"
+                          },
+                          "kandidater": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "integer"
+                                },
+                                "navn": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "description": "Andre, der ligner (højst tre)"
+                          },
+                          "sikkerhed": {
+                            "type": "string",
+                            "enum": [
+                              "hoej",
+                              "middel",
+                              "lav"
+                            ]
+                          },
+                          "begrundelse": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "advarsler": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "Det, der blev kasseret fra modellens svar"
+                          }
+                        }
+                      }
+                    },
+                    "uklart": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Et spørgsmål fra modellen, når noget ikke kunne afgøres"
+                    },
+                    "udbyder": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "model": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Ikke lageransvarlig"
+          },
+          "404": {
+            "description": "Modulet er fra, eller fotoet er ukendt for kalderen"
+          },
+          "413": {
+            "description": "Billedet er over 12 MB"
+          },
+          "422": {
+            "description": "Hverken billede eller tekst, et billede, der ikke kan læses, eller udbyderen ville ikke tolke det"
+          },
+          "429": {
+            "description": "For mange forslag (pr. person i minuttet og i timen)"
+          },
+          "502": {
+            "description": "Udbyderen svarede ikke, eller svaret passede ikke i skemaet"
+          },
+          "503": {
+            "description": "Ikke sat op hos driften, eller udbyderen har travlt"
+          },
+          "504": {
+            "description": "Udbyderen svarede ikke i tide"
+          }
+        }
+      }
+    },
     "/ansvarlig/bestillinger": {
       "x-moduler": [
         "bestillinger"
@@ -952,6 +1225,7 @@
                       "kvittering",
                       "garanti",
                       "faktura",
+                      "kontrakt",
                       "manual",
                       "attest",
                       "datablad",
@@ -1337,7 +1611,9 @@
                         "krog",
                         "fag",
                         "plads",
-                        "beholder"
+                        "beholder",
+                        "depotrum",
+                        "container"
                       ],
                       "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
                     }
@@ -3663,6 +3939,111 @@
         }
       }
     },
+    "/ansvarlig/lokationer/{id}/dokumenter": {
+      "get": {
+        "operationId": "lager_ansvarlig_lokation_dokumenter",
+        "summary": "Lokationens dokumenter (#199): lejekontrakten, ordensreglerne, udbyderens plan. Kun den lageransvarlige",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ dokumenter: Dokument[] }"
+          }
+        }
+      },
+      "post": {
+        "operationId": "lager_ansvarlig_lokation_dokument_tilfoej",
+        "summary": "Et dokument på lokationen: en adresse som JSON { navn, url, slags } eller filen som rå krop (PDF højst 25 MB, JPEG/PNG/WebP/HEIC højst 12 MB) med ?navn=&slags=",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "navn",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Kun ved en fil"
+          },
+          {
+            "name": "slags",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Kun ved en fil"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "https://…"
+                  },
+                  "slags": {
+                    "type": "string",
+                    "enum": [
+                      "kontrakt",
+                      "faktura",
+                      "kvittering",
+                      "manual",
+                      "datablad",
+                      "sikkerhed",
+                      "attest",
+                      "garanti",
+                      "andet"
+                    ]
+                  }
+                },
+                "required": [
+                  "navn",
+                  "url"
+                ]
+              }
+            },
+            "application/pdf": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/*": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ dokument: Dokument }"
+          }
+        }
+      }
+    },
     "/ansvarlig/lokationer/{id}/evner/{noegle}": {
       "put": {
         "operationId": "lager_ansvarlig_lokation_evne_saet",
@@ -3814,6 +4195,264 @@
           },
           "422": {
             "description": "Ring, andet lager eller en type, der ikke må ligge dér"
+          }
+        }
+      }
+    },
+    "/ansvarlig/lokationer/{id}/lejet": {
+      "put": {
+        "operationId": "lager_ansvarlig_lejemaal_ret",
+        "summary": "Ret lejemålet på et depotrum eller en container. Kun felterne, der er med, ændres; null tømmer, og adgang erstatter listen (personer fra kontoen, der kan vælges på lageret, som personvælgeren). Koderne rettes kun i appen",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "description": "Lejemålets version (409, hvis det er ændret siden)"
+                  },
+                  "udbyder": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 200
+                  },
+                  "anlaeg": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 200
+                  },
+                  "adresse": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 500
+                  },
+                  "enhedsnummer": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 100,
+                    "description": "Rum- eller containernummeret"
+                  },
+                  "plads": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 200
+                  },
+                  "adgangsmaader": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "app",
+                        "kode",
+                        "noegle",
+                        "brik",
+                        "haengelaas"
+                      ]
+                    }
+                  },
+                  "adgangstider": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 500
+                  },
+                  "kontakt": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "navn": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 200
+                      },
+                      "telefon": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 50
+                      },
+                      "mail": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 200
+                      },
+                      "web": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 500
+                      }
+                    }
+                  },
+                  "kontrakt": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "nummer": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 100
+                      },
+                      "prisPrMaaned": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0
+                      },
+                      "valuta": {
+                        "type": "string",
+                        "pattern": "^[A-Z]{3}$"
+                      },
+                      "start": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "ÅÅÅÅ-MM-DD"
+                      },
+                      "slut": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "Opsagt til, ÅÅÅÅ-MM-DD"
+                      },
+                      "opsigelsesvarsel": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 200
+                      }
+                    }
+                  },
+                  "note": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 4000
+                  },
+                  "adgang": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "description": "Personernes id'er (fra /ansvarlig/personer); erstatter listen"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "LejemaalSvar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LejemaalSvar"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Ikke lageransvarlig på lokationens lager"
+          },
+          "409": {
+            "description": "version passer ikke, eller lokationen er ikke aktiv"
+          },
+          "422": {
+            "description": "Ukendt felt, ugyldig værdi, en person, der ikke kan vælges, eller ikke et depotrum eller en container"
+          }
+        }
+      }
+    },
+    "/ansvarlig/lokationer/{id}/lejet/koder": {
+      "put": {
+        "operationId": "lager_ansvarlig_lejemaal_koder",
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "Koderne skrives kun i appen af den lageransvarlige; de må ikke gå gennem en samtale. Ruten afviser gatewayen."
+        },
+        "summary": "Sæt eller fjern adgangskoden og PIN'en; null eller tom fjerner. Svaret siger kun, om de findes; værdierne står aldrig i audit_log",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "adgangskode": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 200
+                  },
+                  "pin": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 50
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ koder: { adgangskode: boolean, pin: boolean } }"
+          },
+          "403": {
+            "description": "Ikke lageransvarlig, eller kaldt gennem MCP"
           }
         }
       }
@@ -3988,7 +4627,19 @@
         }
       },
       "post": {
-        "summary": "Ny model med første prisversion; med kategoriskabelon (#57) også egenskaberne, og kategori kan udelades (bliver skabelonens navn)",
+        "summary": "Ny model med første prisversion; med kategoriskabelon (#57) også egenskaberne, og kategori kan udelades (bliver skabelonens navn). Med Idempotency-Key (valgfri, #51) giver et genforsøg den samme model, ikke en ny",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -4943,7 +5594,7 @@
     "/ansvarlig/optaelling/{id}/afgoer": {
       "post": {
         "summary": "Afgør én afvigelse i optællingen",
-        "description": "slags: savnet | hos_person (personId, projektId) | kasseret (note) | oprettet (modelId) | ikke_vores | plads_flyttet | ok. Afgørelsen udføres først, når optællingen lukkes. plads_flyttet tjekker den nye hjemmeplads mod placeringsreglerne (409 med grunden; så er svaret ok, og enheden flyttes hjem).",
+        "description": "slags: savnet | hos_person (personId fra /ansvarlig/personer, en person på lageret, ellers 422, også ved lukningen; projektId) | kasseret (note) | oprettet (modelId) | ikke_vores | plads_flyttet | ok. Afgørelsen udføres først, når optællingen lukkes. plads_flyttet tjekker den nye hjemmeplads mod placeringsreglerne (409 med grunden; så er svaret ok, og enheden flyttes hjem).",
         "parameters": [
           {
             "name": "id",
@@ -5539,6 +6190,71 @@
         }
       }
     },
+    "/ansvarlig/personer": {
+      "get": {
+        "summary": "Personvælgeren (#175): lagerets personer med id, navn og mail, søgt på navn eller mail. Kun læsning, kun lageransvarlig",
+        "description": "Til personId i en afgørelse (hos_person). Omfanget er kontoen, du er logget ind i, og lageret: med Entra personer med en identitet i kontoens tenant og spor på lageret (en bevægelse, booking, et udlån eller en enhed hos dem; ikke en kioskkonto, der kun handler for andre), med magic link en række på tilladt-listen (værktøjsbruger eller lageransvarlig) på lageret eller over det. Aldrig en person fra en anden konto; kun aktive.",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Del af navnet eller mailen; uden: de første efter navn"
+          },
+          {
+            "name": "graense",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "description": "Standard 20"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ personer }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "personer": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ansvarlig/placeringsregler": {
       "post": {
         "operationId": "lager_ansvarlig_placeringsregel_opret",
@@ -5842,7 +6558,7 @@
     },
     "/ansvarlig/pladser/zoner": {
       "post": {
-        "summary": "Ny zone",
+        "summary": "Ny zone, eller ret navnet på en eksisterende. Uden slags er en ny zone til opbevaring, og en eksisterende beholder sin slags. En særzones slags skiftes kun med skiftSlags: true; standardzonernes (MOD, UDL, LAD, KLG, SRV, KAR, ASB-K, ASB-O) er fast",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -5873,6 +6589,9 @@
                   },
                   "slags": {
                     "type": "string"
+                  },
+                  "skiftSlags": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -5886,6 +6605,12 @@
         "responses": {
           "201": {
             "description": "{ zone }"
+          },
+          "409": {
+            "description": "Koden er brugt af noget, der ikke er en zone, eller slagsen af en særzone ændres uden skiftSlags (en standardzones slags aldrig)"
+          },
+          "422": {
+            "description": "Ugyldig kode, tomt navn eller ukendt slags"
           }
         }
       }
@@ -7373,7 +8098,9 @@
                       "krog",
                       "fag",
                       "plads",
-                      "beholder"
+                      "beholder",
+                      "depotrum",
+                      "container"
                     ],
                     "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
                   },
@@ -7840,7 +8567,9 @@
                           "krog",
                           "fag",
                           "plads",
-                          "beholder"
+                          "beholder",
+                          "depotrum",
+                          "container"
                         ],
                         "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
                       },
@@ -8024,7 +8753,9 @@
                           "krog",
                           "fag",
                           "plads",
-                          "beholder"
+                          "beholder",
+                          "depotrum",
+                          "container"
                         ],
                         "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
                       },
@@ -13380,6 +14111,94 @@
         }
       }
     },
+    "/lokationer/{id}/lejet": {
+      "get": {
+        "operationId": "lager_lejemaal",
+        "summary": "Lejemålet på et depotrum eller en container (#199): udbyder, anlæg, rum- eller containernummer, plads, adgangsmåde og -tider, kontakt, note og personerne med adgang; kontrakten (nummer, pris pr. måned, periode, varsel) kun for den lageransvarlige. Koderne står aldrig her",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "LejemaalSvar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LejemaalSvar"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Lokationen findes ikke på dine lagre"
+          }
+        }
+      }
+    },
+    "/lokationer/{id}/lejet/koder": {
+      "post": {
+        "operationId": "lager_lejemaal_vis_koder",
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "Adgangskoden og PIN'en til et lejet rum er for en person i appen; en kode i en samtale med en model er en anden sag end at se den selv. Ruten afviser gatewayen."
+        },
+        "summary": "«Vis kode»: adgangskoden og PIN'en, kun for den lageransvarlige og personerne med adgang. Hver visning (og hvert afslag) skrives i audit_log. no-store",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ koder: { adgangskode, pin } }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "koder": {
+                      "type": "object",
+                      "properties": {
+                        "adgangskode": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "pin": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hverken lageransvarlig eller blandt personerne med adgang, eller kaldt gennem MCP"
+          },
+          "422": {
+            "description": "Ikke et depotrum eller en container"
+          }
+        }
+      }
+    },
     "/lokationer/{id}/passer": {
       "get": {
         "operationId": "lager_lokation_passer",
@@ -13937,7 +14756,9 @@
                 "krog",
                 "fag",
                 "plads",
-                "beholder"
+                "beholder",
+                "depotrum",
+                "container"
               ],
               "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
             }
@@ -14211,7 +15032,9 @@
                           "krog",
                           "fag",
                           "plads",
-                          "beholder"
+                          "beholder",
+                          "depotrum",
+                          "container"
                         ],
                         "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
                       }
@@ -14241,7 +15064,9 @@
                             "krog",
                             "fag",
                             "plads",
-                            "beholder"
+                            "beholder",
+                            "depotrum",
+                            "container"
                           ],
                           "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
                         }
@@ -14269,7 +15094,9 @@
                           "krog",
                           "fag",
                           "plads",
-                          "beholder"
+                          "beholder",
+                          "depotrum",
+                          "container"
                         ],
                         "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
                       }
@@ -16498,7 +17325,9 @@
                 "krog",
                 "fag",
                 "plads",
-                "beholder"
+                "beholder",
+                "depotrum",
+                "container"
               ],
               "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
             }
@@ -17298,6 +18127,7 @@
               "kvittering",
               "garanti",
               "faktura",
+              "kontrakt",
               "andet"
             ]
           },
@@ -17317,7 +18147,8 @@
             "type": "string",
             "enum": [
               "model",
-              "enhed"
+              "enhed",
+              "lokation"
             ]
           }
         }
@@ -17671,7 +18502,9 @@
               "krog",
               "fag",
               "plads",
-              "beholder"
+              "beholder",
+              "depotrum",
+              "container"
             ],
             "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
           },
@@ -17900,7 +18733,9 @@
               "krog",
               "fag",
               "plads",
-              "beholder"
+              "beholder",
+              "depotrum",
+              "container"
             ],
             "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
           },
@@ -18758,7 +19593,9 @@
                   "krog",
                   "fag",
                   "plads",
-                  "beholder"
+                  "beholder",
+                  "depotrum",
+                  "container"
                 ],
                 "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
               },
@@ -19042,7 +19879,9 @@
               "krog",
               "fag",
               "plads",
-              "beholder"
+              "beholder",
+              "depotrum",
+              "container"
             ],
             "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
           },
@@ -21092,6 +21931,205 @@
                 }
               }
             }
+          }
+        }
+      },
+      "Lejemaal": {
+        "type": "object",
+        "properties": {
+          "lokationId": {
+            "type": "integer"
+          },
+          "udbyder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "anlaeg": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Anlægget hos udbyderen (by eller navn)"
+          },
+          "adresse": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enhedsnummer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Rum- eller containernummeret"
+          },
+          "plads": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pladsen på anlægget: etage, gang, række"
+          },
+          "adgangsmaader": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "app",
+                "kode",
+                "noegle",
+                "brik",
+                "haengelaas"
+              ]
+            }
+          },
+          "adgangstider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kontakt": {
+            "type": "object",
+            "properties": {
+              "navn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "telefon": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "mail": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "web": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "kontrakt": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Kun for den lageransvarlige (ellers null)",
+            "properties": {
+              "nummer": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "prisPrMaaned": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "valuta": {
+                "type": "string"
+              },
+              "start": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "slut": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Opsagt til (sidste dag), ÅÅÅÅ-MM-DD"
+              },
+              "opsigelsesvarsel": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "harAdgangskode": {
+            "type": "boolean",
+            "description": "Der er en adgangskode (værdien vises kun med «Vis kode» i appen)"
+          },
+          "harPin": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "opdateret": {
+            "type": "string"
+          }
+        }
+      },
+      "LejemaalSvar": {
+        "type": "object",
+        "properties": {
+          "lejemaal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Lejemaal"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null: intet skrevet endnu"
+          },
+          "adgang": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "navn": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Kun for den lageransvarlige"
+                }
+              }
+            }
+          },
+          "harAdgang": {
+            "type": "boolean",
+            "description": "Kalderen står blandt personerne med adgang"
+          },
+          "maaSeKoder": {
+            "type": "boolean",
+            "description": "Der er koder, og kalderen er lageransvarlig eller har adgang"
+          },
+          "maaRette": {
+            "type": "boolean"
           }
         }
       },

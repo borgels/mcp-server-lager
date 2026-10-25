@@ -42,6 +42,29 @@ describe('OpenAPI-øjebliksbilledet', () => {
     expect([...brugte].filter((op) => /\/link$|^POST \/(laan|kanban)\b|\/kanban\/etiketter/.test(op))).toEqual([]);
   });
 
+  it('koderne til et lejet rum går aldrig gennem MCP; lejemålet uden koder gør', () => {
+    // Adgangskoden og PIN'en (#199) må hverken læses eller skrives af en agent.
+    for (const op of ['POST /lokationer/{id}/lejet/koder', 'PUT /ansvarlig/lokationer/{id}/lejet/koder'] as OpNoegle[]) {
+      expect(operation(op), op).toBeDefined();
+      expect(UDEN_VAERKTOEJ[op], op).toBeDefined();
+    }
+    expect([...brugte].filter((op) => /\/koder$/.test(op))).toEqual([]);
+    const laes = byg(KATALOG.find((s) => s.navn === 'lager_lejemaal')!);
+    expect(laes.skriv).toBe(false);
+    const ret = byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_lejemaal_ret')!);
+    expect(ret.skriv).toBe(true);
+    expect(Object.keys(ret.shape)).not.toContain('adgangskode');
+    expect(Object.keys(ret.shape)).not.toContain('pin');
+    expect(ret.shape.lokationId!.safeParse(undefined).success).toBe(false);
+    expect(ret.shape.note!.safeParse(null).success).toBe(true);
+    // Fejlregistrering (omm-lager #207) er lagerets markering uden værktøj, når den står i kortet.
+    const fejl = 'POST /ansvarlig/enheder/{tag}/fejlregistrer' as OpNoegle;
+    if (operation(fejl)) {
+      expect(UDEN_VAERKTOEJ[fejl]).toBeDefined();
+      expect(brugte.has(fejl)).toBe(false);
+    }
+  });
+
   it('UDEN_VAERKTOEJ_HER gentager ikke lagerets egne markeringer', () => {
     expect(Object.keys(UDEN_VAERKTOEJ_HER).filter((op) => op in UDEN_VAERKTOEJ_I_KORTET)).toEqual([]);
   });
