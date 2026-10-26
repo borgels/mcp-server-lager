@@ -9479,7 +9479,19 @@
         }
       },
       "post": {
-        "summary": "Ny opgave på én enhed, én model (alle dens enheder) eller én lokation. Uden interval en engangsdato (fx garanti)",
+        "summary": "Ny opgave på én enhed, én model (alle dens enheder) eller én lokation. Uden interval en engangsdato (fx garanti). Med Idempotency-Key giver et genforsøg samme opgave",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -11770,7 +11782,7 @@
       },
       "post": {
         "operationId": "lager_ansvarlig_iot_enhed_opret",
-        "summary": "Map en HA-entitet til en lokation. Kræver lageransvarlig på ALLE installationens lagre (HA er installationens), og lokationen på et af dine lagre; 409 hvis entiteten allerede er mappet",
+        "summary": "Map en HA-entitet til en lokation. Kræver lageransvarlig på ALLE installationens lagre (HA er installationens), og lokationen på et af dine lagre; 409 hvis entiteten allerede er mappet. Gennem MCP-gatewayen afvises et kamera og kamerafelterne (kameraAdgang, go2rtcStroem) med 403: kameraer sættes kun op i appen",
         "requestBody": {
           "required": true,
           "content": {
@@ -11999,7 +12011,7 @@
       },
       "put": {
         "operationId": "lager_ansvarlig_iot_enhed_ret",
-        "summary": "Ret enheden (felterne i kroppen). Flyttes den, skal du være ansvarlig begge steder; en ny haEntityId eller aktiv: true på en nedlagt kræver lageransvarlig på alle lagre",
+        "summary": "Ret enheden (felterne i kroppen). Flyttes den, skal du være ansvarlig begge steder; en ny haEntityId eller aktiv: true på en nedlagt kræver lageransvarlig på alle lagre. Gennem MCP-gatewayen afvises et kamera og kamerafelterne (kameraAdgang, go2rtcStroem) med 403: kameraer sættes kun op i appen",
         "parameters": [
           {
             "name": "id",
@@ -12096,7 +12108,7 @@
       },
       "delete": {
         "operationId": "lager_ansvarlig_iot_enhed_fjern",
-        "summary": "Fjern enheden: slettes uden målinger, ellers nedlægges den, og historikken bliver",
+        "summary": "Fjern enheden: slettes uden målinger, ellers nedlægges den, og historikken bliver. Gennem MCP-gatewayen afvises et kamera og kamerafelterne (kameraAdgang, go2rtcStroem) med 403: kameraer sættes kun op i appen",
         "parameters": [
           {
             "name": "id",

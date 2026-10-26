@@ -102,6 +102,40 @@ describe('OpenAPI-øjebliksbilledet', () => {
     expect(byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_kasser')!).shape.handling).toBeUndefined();
   });
 
+  it('al opsætning har et værktøj: opret, ret og slå fra (med brugerens ja); kameraer kun i appen', () => {
+    const opsaetning: OpNoegle[] = [
+      'POST /ansvarlig/modeller', 'PUT /ansvarlig/modeller/{id}', 'POST /ansvarlig/enheder', 'PUT /ansvarlig/enheder/{tag}',
+      'POST /ansvarlig/forbrugsvarer', 'PUT /ansvarlig/forbrugsvarer/{id}',
+      'POST /ansvarlig/kategoriskabeloner', 'PATCH /ansvarlig/kategoriskabeloner/{id}', 'POST /ansvarlig/enhedsfelter', 'PATCH /ansvarlig/enhedsfelter/{id}',
+      'POST /ansvarlig/forbrugsgrupper', 'PATCH /ansvarlig/forbrugsgrupper/{noegle}', 'POST /ansvarlig/saermaerker', 'PATCH /ansvarlig/saermaerker/{noegle}',
+      'POST /ansvarlig/skabeloner', 'PATCH /ansvarlig/skabeloner/{id}', 'PUT /ansvarlig/skabeloner/fravalg', 'POST /ansvarlig/evnetyper', 'PATCH /ansvarlig/evnetyper/{id}',
+      'POST /ansvarlig/placeringsregler', 'PATCH /ansvarlig/placeringsregler/{id}', 'POST /ansvarlig/procesflows', 'PATCH /ansvarlig/procesflows/{id}',
+      'PUT /ansvarlig/kodeskabelon', 'PUT /ansvarlig/modeller/{id}/krav', 'PUT /ansvarlig/modeller/{id}/maal', 'PUT /ansvarlig/modeller/{id}/pakkeliste',
+      'POST /ansvarlig/vedligehold/typer', 'PUT /ansvarlig/vedligehold/typer/{id}', 'POST /ansvarlig/vedligehold/opgaver', 'PUT /ansvarlig/vedligehold/opgaver/{id}', 'DELETE /ansvarlig/vedligehold/opgaver/{id}',
+      'POST /iot/enheder', 'PUT /iot/enheder/{id}', 'DELETE /iot/enheder/{id}', 'POST /iot/alarmregler', 'PUT /iot/alarmregler/{id}', 'DELETE /iot/alarmregler/{id}',
+      'POST /ansvarlig/lokationer', 'PATCH /ansvarlig/lokationer/{id}', 'POST /ansvarlig/lokationer/{id}/nedlaeg',
+    ];
+    expect(opsaetning.filter((op) => !brugte.has(op))).toEqual([]);
+    // At slå noget fra (aktiv: false) kræver brugerens ja; at rette noget andet gør ikke.
+    for (const navn of ['lager_ansvarlig_kategoriskabelon_ret', 'lager_ansvarlig_enhedsfelter_ret', 'lager_ansvarlig_forbrugsgruppe_ret', 'lager_ansvarlig_saermaerke_ret',
+      'lager_ansvarlig_skabelon_ret', 'lager_ansvarlig_evnetype_ret', 'lager_ansvarlig_placeringsregel_ret', 'lager_ansvarlig_procesflow_ret', 'lager_ansvarlig_ret_model',
+      'lager_ansvarlig_forbrugsvare_ret', 'lager_ansvarlig_vedligehold_type_ret', 'lager_ansvarlig_vedligehold_opgave_ret', 'lager_ansvarlig_iot_enhed_ret', 'lager_ansvarlig_iot_alarmregel_ret']) {
+      const b = byg(KATALOG.find((s) => s.navn === navn)!);
+      expect(b.kraeverBekraeftelse({ aktiv: false }), navn).toBe(true);
+      expect(b.kraeverBekraeftelse({ navn: 'x' }), navn).toBe(false);
+    }
+    for (const navn of ['lager_ansvarlig_iot_enhed_opret', 'lager_ansvarlig_iot_enhed_ret']) {
+      const felter = Object.keys(byg(KATALOG.find((s) => s.navn === navn)!).shape);
+      expect(felter, navn).not.toContain('kameraAdgang');
+      expect(felter, navn).not.toContain('go2rtcStroem');
+    }
+    // Bevidst uden værktøj: adgang, moduler, prispolitik, bogføringens varer og kameraernes billeder.
+    for (const op of ['POST /ansvarlig/adgang', 'PUT /ansvarlig/moduler', 'GET /ansvarlig/politik', 'PUT /ansvarlig/economic/varer', 'GET /iot/kameraer/{id}/billede'] as OpNoegle[]) {
+      expect(brugte.has(op), op).toBe(false);
+      expect(UDEN_VAERKTOEJ[op], op).toBeDefined();
+    }
+  });
+
   it('den lageransvarliges værktøjer kendes på navnet eller på /ansvarlig', () => {
     for (const s of KATALOG) {
       const b = byg(s);

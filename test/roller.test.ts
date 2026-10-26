@@ -270,7 +270,8 @@ describe('den lageransvarliges nye skrivninger', () => {
     expect((await mcp.callTool({ name: 'lager_ansvarlig_model_opret', arguments: { navn: 'Makita DHR243', kategori: 'Borehammer', dagssats: 95, gyldigFra: '2026-11-01' } })).isError).toBeFalsy();
     expect((await mcp.callTool({ name: 'lager_ansvarlig_enhed_opret', arguments: { modelId: 12, antal: 3, leverandoer: 'STARK' } })).isError).toBeFalsy();
     expect((await mcp.callTool({ name: 'lager_ansvarlig_forbrugsvare_opret', arguments: { navn: 'Kabelbindere 200 mm', enhed: 'pose', kostpris: 39 } })).isError).toBeFalsy();
-    expect((await mcp.callTool({ name: 'lager_ansvarlig_forbrugsvare_ret', arguments: { forbrugsvareId: 17, aktiv: false } })).isError).toBeFalsy();
+    expect((await mcp.callTool({ name: 'lager_ansvarlig_forbrugsvare_ret', arguments: { forbrugsvareId: 17, aktiv: false } })).isError).toBe(true);
+    expect((await mcp.callTool({ name: 'lager_ansvarlig_forbrugsvare_ret', arguments: { forbrugsvareId: 17, aktiv: false, bekraeftet: true } })).isError).toBeFalsy();
     const kald = fetchFn.mock.calls.map((c) => c as unknown as Kald).map(([u, i]) => [i.method, u.pathname, JSON.parse(String(i.body))]);
     expect(kald).toEqual([
       ['POST', '/api/lager/ansvarlig/modeller', { navn: 'Makita DHR243', kategori: 'Borehammer', dagssats: 95, gyldigFra: '2026-11-01' }],
@@ -296,5 +297,14 @@ describe('den lageransvarliges nye skrivninger', () => {
     const [url, init] = fetchFn.mock.calls[1] as unknown as Kald;
     expect([init.method, url.pathname]).toEqual(['POST', '/api/lager/ansvarlig/priser']);
     expect(JSON.parse(String(init.body))).toEqual({ modelId: 12, gyldigFra: '2026-11-01', dagssats: 110 });
+  });
+
+  it('en IoT-enhed med slags kamera afvises, før noget sendes', async () => {
+    const fetchFn = vi.fn(async () => svar(201, { enhed: { id: 1 } }));
+    const mcp = await forbind(fetchFn as unknown as typeof fetch, ansvarlig);
+    expect((await mcp.callTool({ name: 'lager_ansvarlig_iot_enhed_opret', arguments: { lokationId: 3, haEntityId: 'camera.port', slags: 'kamera' } })).isError).toBe(true);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect((await mcp.callTool({ name: 'lager_ansvarlig_iot_enhed_opret', arguments: { lokationId: 3, haEntityId: 'sensor.skur', slags: 'sensor' } })).isError).toBeFalsy();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 });

@@ -130,18 +130,23 @@ describe('nye værktøjer', () => {
     for (const n of ['lager_ansvarlig_optaelling_afgoer', 'lager_ansvarlig_optaelling_luk']) expect(tools.find((x) => x.name === n)!.annotations?.destructiveHint, n).toBe(true);
   });
 
-  it('ret enhed: ingen købspris eller model, og null sletter et felt', async () => {
+  it('ret enhed: model og købspris kræver brugerens ja, og null sletter et felt', async () => {
     const fetchFn = vi.fn(async () => svar(200, { enhed: {} }));
     const mcp = await forbind(fetchFn as unknown as typeof fetch);
     const { tools } = await mcp.listTools();
     const felter = Object.keys(tools.find((x) => x.name === 'lager_ansvarlig_ret_enhed')!.inputSchema.properties!);
-    expect(felter).not.toContain('koebspris');
-    expect(felter).not.toContain('modelId');
-    const r = await mcp.callTool({ name: 'lager_ansvarlig_ret_enhed', arguments: { tag: 'T-00012', note: null, plads: 'A-12-3', koebspris: 1 } });
+    expect(felter).toContain('koebspris');
+    expect(felter).toContain('modelId');
+    const udenJa = await mcp.callTool({ name: 'lager_ansvarlig_ret_enhed', arguments: { tag: 'T-00012', koebspris: 1 } });
+    expect(udenJa.isError).toBe(true);
+    expect(fetchFn).not.toHaveBeenCalled();
+    const r = await mcp.callTool({ name: 'lager_ansvarlig_ret_enhed', arguments: { tag: 'T-00012', note: null, plads: 'A-12-3' } });
     expect(r.isError).toBeFalsy();
     const [url, init] = fetchFn.mock.calls[0] as unknown as Kald;
     expect([init.method, url.pathname]).toEqual(['PUT', '/api/lager/ansvarlig/enheder/T-00012']);
     expect(JSON.parse(String(init.body))).toEqual({ note: null, plads: 'A-12-3' });
+    await mcp.callTool({ name: 'lager_ansvarlig_ret_enhed', arguments: { tag: 'T-00012', modelId: 14, koebspris: 2799, bekraeftet: true } });
+    expect(JSON.parse(String((fetchFn.mock.calls[1] as unknown as Kald)[1].body))).toEqual({ modelId: 14, koebspris: 2799 });
   });
 
   it('nye skrivninger er også spærret uden LAGER_ENABLE_WRITES', async () => {
