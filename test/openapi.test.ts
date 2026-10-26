@@ -57,12 +57,52 @@ describe('OpenAPI-øjebliksbilledet', () => {
     expect(Object.keys(ret.shape)).not.toContain('pin');
     expect(ret.shape.lokationId!.safeParse(undefined).success).toBe(false);
     expect(ret.shape.note!.safeParse(null).success).toBe(true);
-    // Fejlregistrering (omm-lager #207) er lagerets markering uden værktøj, når den står i kortet.
+  });
+
+  it('fejlregistrering er et destruktivt værktøj, der kræver brugerens ja og aldrig krediterer', () => {
+    // Lageret tog x-mcp af (epic #9) og afviser selv krediter: true gennem gatewayen (403).
     const fejl = 'POST /ansvarlig/enheder/{tag}/fejlregistrer' as OpNoegle;
-    if (operation(fejl)) {
-      expect(UDEN_VAERKTOEJ[fejl]).toBeDefined();
-      expect(brugte.has(fejl)).toBe(false);
+    expect(operation(fejl)).toBeDefined();
+    expect(UDEN_VAERKTOEJ[fejl]).toBeUndefined();
+    const b = byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_fejlregistrer')!);
+    expect(b.ops).toEqual([fejl]);
+    expect(b.sletter).toBe(true);
+    expect(b.bekraeftes).toBe(true);
+    expect(b.shape.bekraeftet!.safeParse(undefined).success).toBe(false);
+    expect(b.shape.bekraeftet!.safeParse(false).success).toBe(false);
+    expect(b.shape.bekraeftet!.safeParse(true).success).toBe(true);
+    expect(b.shape.krediter!.safeParse(true).success).toBe(false);
+    expect(b.shape.krediter!.safeParse(undefined).success).toBe(true);
+  });
+
+  it('kassering, fejlregistrering, sletning og annullering kræver bekraeftet og er destruktive', () => {
+    const skal = [
+      'lager_ansvarlig_kasser', 'lager_ansvarlig_fejlregistrer', 'lager_ansvarlig_udtag_annuller', 'lager_ansvarlig_periode_annuller',
+      'lager_ansvarlig_saet_oploes', 'lager_ansvarlig_lokation_nedlaeg', 'lager_ansvarlig_kanban_tilbagekald', 'lager_ansvarlig_iot_alarmregel_fjern', 'scenario_slet',
+    ];
+    for (const navn of skal) {
+      const b = byg(KATALOG.find((s) => s.navn === navn)!);
+      expect(b.bekraeftes, navn).toBe(true);
+      expect(b.sletter, navn).toBe(true);
+      expect(b.shape.bekraeftet, navn).toBeDefined();
     }
+    // Frigivelse er ikke destruktiv; kassering er. Begge er afgørelsen, med handlingen fast.
+    const frigiv = byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_frigiv')!);
+    expect(frigiv.bekraeftes).toBe(false);
+    expect(frigiv.shape.handling).toBeUndefined();
+    expect(byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_kasser')!).shape.handling).toBeUndefined();
+  });
+
+  it('den lageransvarliges værktøjer kendes på navnet eller på /ansvarlig', () => {
+    for (const s of KATALOG) {
+      const b = byg(s);
+      const underAnsvarlig = b.ops.some((op) => splitOp(op).sti.startsWith('/ansvarlig/'));
+      expect(b.ansvarlig, s.navn).toBe(s.navn.startsWith('lager_ansvarlig_') || underAnsvarlig);
+      // Et lager_*-værktøj (uden ansvarlig) bruger aldrig en /ansvarlig-rute, undtagen scenarierne.
+      if (underAnsvarlig && !s.navn.startsWith('lager_ansvarlig_')) expect(s.navn, s.navn).toMatch(/^scenario_/);
+    }
+    expect(byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_model_opret')!).ansvarlig).toBe(true);
+    expect(byg(KATALOG.find((s) => s.navn === 'lager_tjek_ud')!).ansvarlig).toBe(false);
   });
 
   it('UDEN_VAERKTOEJ_HER gentager ikke lagerets egne markeringer', () => {

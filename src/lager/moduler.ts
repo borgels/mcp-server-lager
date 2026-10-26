@@ -20,6 +20,12 @@ export class ModulCache {
     return this.data;
   }
 
+  /** Modulerne fra et /me, der alligevel blev hentet (LagerrolleCache), så de ikke hentes igen. */
+  saet(moduler: Moduler): void {
+    this.data = moduler;
+    this.tid = Date.now();
+  }
+
   async hent(client: LagerClient): Promise<Moduler | null> {
     if (this.data && Date.now() - this.tid < this.ttlMs) return this.data;
     this.igang ??= client

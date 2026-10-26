@@ -55,7 +55,7 @@ describe('procesflows, udlån, kanban, stregkoder og indretning', () => {
     const fetchFn = vi.fn(async () => svar(200, { kort: [] }));
     const mcp = await forbind(fetchFn as unknown as typeof fetch);
     await mcp.callTool({ name: 'lager_ansvarlig_kanban', arguments: { forbrugsvareId: 7 } });
-    await mcp.callTool({ name: 'lager_ansvarlig_kanban_tilbagekald', arguments: { kanbanId: 12 } });
+    await mcp.callTool({ name: 'lager_ansvarlig_kanban_tilbagekald', arguments: { kanbanId: 12, bekraeftet: true } });
     const [liste] = fetchFn.mock.calls[0] as unknown as Kald;
     const [url, init] = fetchFn.mock.calls[1] as unknown as Kald;
     expect(liste.toString()).toBe('https://lager.test/api/lager/ansvarlig/kanban?vare=7');
