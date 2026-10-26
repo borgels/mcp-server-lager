@@ -13,7 +13,11 @@ import {
 import { FAELLES_ALIAS, FAELLES_BESKRIVELSER, type Input, type Sender, type ToolSpec } from './katalog.js';
 
 type Plads = { hvor: 'path' | 'query' | 'body'; api: string; flag?: boolean };
-export type Plan = { op: OpNoegle; felter: Record<string, Plads> };
+export type Plan = { op: OpNoegle; felter: Record<string, Plads>; krop: boolean };
+
+/** MCP's egen bekræftelse: et felt, der aldrig sendes til lageret. */
+export const BEKRAEFTET = 'bekraeftet';
+export const BEKRAEFTET_TEKST = 'Skal være true: brugeren har i samtalen udtrykkeligt sagt ja til netop denne handling, efter du har vist, hvad den gør (hvilken enhed, periode eller hvad der ellers rammes). Spørg først, og sæt det aldrig på eget initiativ. Det sendes ikke til lageret.';
 export type Bygget = {
   shape: Record<string, z.ZodType>;
   skriv: boolean;
@@ -23,6 +27,16 @@ export type Bygget = {
   /** openWorldHint. */
   aabenVerden: boolean;
   moduler: string[];
+  /**
+   * Den lageransvarliges værktøj: navnet er lager_ansvarlig_*, en operation ligger under /ansvarlig/
+   * (fx scenariernes skrivninger), eller kataloget siger det (ToolSpec.ansvarlig, fx placeringsmotoren).
+   * Skjules for en værktøjsbruger (src/lager/roller.ts).
+   */
+  ansvarlig: boolean;
+  /** Værktøjet kan kræve bekraeftet: true, brugerens udtrykkelige ja (ToolSpec.bekraeftes). */
+  bekraeftes: boolean;
+  /** Kræver netop dette kald bekraeftet? */
+  kraeverBekraeftelse: (input: Input) => boolean;
   ops: OpNoegle[];
   send: (client: LagerClient) => Sender;
   vaelg: (input: Input) => OpNoegle;
@@ -95,7 +109,7 @@ function planFor(spec: ToolSpec, op: OpNoegle, doc: OpenApiDoc, fundne: Set<stri
   const skjul = new Set(spec.skjul ?? []);
   const fast = spec.fast ?? {};
   const felter: Record<string, { skema: z.ZodType; paakraevet: boolean; beskrivelse?: string }> = {};
-  const plan: Plan = { op, felter: {} };
+  const plan: Plan = { op, felter: {}, krop: !!o.requestBody };
   for (const p of o.parameters ?? []) {
     if (p.in !== 'path' && p.in !== 'query') continue;
     if (skjul.has(p.name)) { fundne.add(p.name); continue; }
@@ -128,6 +142,12 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
   const planer = new Map<OpNoegle, Plan>([[spec.op, hoved.plan]]);
   if (alt && spec.medId) planer.set(spec.medId.op, alt.plan);
   for (const op of spec.ops ?? []) if (!planer.has(op)) planer.set(op, planFor(spec, op, doc, fundne).plan);
+  // Hver {parameter} i stien skal være en sti-parameter i kortet; ellers gik kaldet til «…/%7Bid%7D/…».
+  for (const [op, plan] of planer) {
+    const har = new Set(Object.values(plan.felter).filter((f) => f.hvor === 'path').map((f) => f.api));
+    const mangler = [...splitOp(op).sti.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]!).filter((n) => !har.has(n));
+    if (mangler.length) throw new Error(`${spec.navn}: ${op} mangler sti-parameteren ${mangler.join(', ')} i kortet`);
+  }
   // Som begraens: en sti, der ikke rammer noget felt i nogen af operationerne, er en fejl i kataloget.
   const forgaeves = [...(spec.skjul ?? []), ...Object.keys(spec.forbyd ?? {})].filter((sti) => !fundne.has(sti));
   if (forgaeves.length) throw new Error(`${spec.navn}: skjul/forbyd ${forgaeves.join(', ')} findes ikke`);
@@ -142,6 +162,11 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
     shape[navn] = t;
   }
   Object.assign(shape, spec.ekstra ?? {});
+  if (spec.bekraeftes) {
+    if (shape[BEKRAEFTET]) throw new Error(`${spec.navn}: ${BEKRAEFTET} findes allerede i skemaet`);
+    const felt = z.literal(true, { error: `${spec.navn} kræver ${BEKRAEFTET}: true, brugerens udtrykkelige ja.` });
+    shape[BEKRAEFTET] = typeof spec.bekraeftes === 'function' ? felt.optional().describe(`${BEKRAEFTET_TEKST} Kræves kun i de tilfælde, beskrivelsen nævner.`) : felt.describe(BEKRAEFTET_TEKST);
+  }
 
   const ops = [...planer.keys()];
   const { metode } = splitOp(spec.op);
@@ -169,17 +194,21 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
       }
     }
     // POST/PUT/PATCH sender altid en krop, så klienten giver kaldet en Idempotency-Key.
-    const body = m === 'get' || m === 'delete' ? undefined : krop;
+    // DELETE kun, når operationen har en krop (fx en begrundelse for en annullering).
+    const body = m === 'get' || (m === 'delete' && !plan.krop) ? undefined : krop;
     return client.request(m.toUpperCase(), sti2, { query, body });
   };
 
   return {
     shape,
     skriv: metode !== 'get' && !spec.laesende,
-    sletter: metode === 'delete' || !!spec.destruktiv,
+    sletter: metode === 'delete' || !!spec.destruktiv || !!spec.bekraeftes,
     idempotent: metode === 'get' || !!spec.laesende || (spec.idempotent ?? metode !== 'post'),
     aabenVerden: !!spec.aabenVerden,
     moduler: [...new Set(ops.flatMap((op) => modulerFor(op, doc)))].sort(),
+    ansvarlig: spec.ansvarlig ?? (spec.navn.startsWith('lager_ansvarlig_') || ops.some((op) => splitOp(op).sti.startsWith('/ansvarlig/'))),
+    bekraeftes: !!spec.bekraeftes,
+    kraeverBekraeftelse: (input) => (typeof spec.bekraeftes === 'function' ? spec.bekraeftes(input) : !!spec.bekraeftes),
     ops,
     send,
     vaelg,

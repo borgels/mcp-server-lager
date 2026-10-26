@@ -2,6 +2,7 @@ import { createServer as createNodeServer } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createServerMedModuler } from '../server.js';
 import { ModulCache } from '../lager/moduler.js';
+import { LagerrolleCache, rollerForKald } from '../lager/roller.js';
 import {
   assertAllowedOrigin,
   assertAuthorized,
@@ -17,6 +18,8 @@ import { assertHttpStartupConfig, assertLagerBaseUrl } from './startup.js';
 const config = getHttpConfig();
 // Modulerne gælder hele installationen: én cache for processen, hentet med den første brugers kald.
 const moduler = new ModulCache();
+// Lagerets roller pr. person (/me), kort cachet.
+const lagerroller = new LagerrolleCache();
 let baseUrl: string;
 
 try {
@@ -71,7 +74,11 @@ const httpServer = createNodeServer(async (req, res) => {
       return typeof v === 'string' && v.trim() ? v.trim() : undefined;
     };
     const identity = { tenantId: header('x-mcp-tenant'), objectId: header('x-mcp-oid'), name: header('x-mcp-name'), email: header('x-mcp-email') };
-    const mcpServer = await createServerMedModuler({ clientOptions: { user, identity }, moduler });
+    // LAGER_ROLLER=gateway: gatewayen sætter X-MCP-Roles ud fra personens Entra-grupper (aldrig klienten).
+    // Uden en kendt rolle er der intet at tilbyde.
+    const roller = rollerForKald(header('x-mcp-roles'));
+    if (roller.length === 0) throw new HttpRequestError(403, 'Ingen lager-rolle for brugeren (X-MCP-Roles fra gatewayen: lager-laes eller lager-skriv)');
+    const mcpServer = await createServerMedModuler({ clientOptions: { user, identity }, moduler, lagerroller, roller });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });

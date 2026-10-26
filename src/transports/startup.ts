@@ -1,5 +1,6 @@
 import { assertSafeBaseUrl } from '../lager/client.js';
 import { HEMMELIGHED_MIN } from '../lager/idempotens.js';
+import { konfigureredeRoller, rollerFraGateway } from '../lager/roller.js';
 import { assertForwardedUserRequiresToken, type HttpConfig } from './http-helpers.js';
 
 /**
@@ -21,6 +22,8 @@ export function assertHttpStartupConfig(
     );
   }
   assertForwardedUserRequiresToken(['LAGER_TRUST_FORWARDED_USER'], config, env);
+  // En ugyldig LAGER_ROLLER (fx en stavefejl) skal stoppe opstarten, ikke give alle skriveadgang.
+  if (!rollerFraGateway(env)) konfigureredeRoller(env);
   // Idempotensnøglerne er en HMAC med denne hemmelighed; uden den kunne de beregnes udefra,
   // og en tilfældig pr. proces ville give forskellige nøgler på hver instans bag gatewayen.
   if ((env.MCP_IDEMPOTENS_HEMMELIGHED ?? '').length < HEMMELIGHED_MIN) {

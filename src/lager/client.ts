@@ -60,10 +60,17 @@ export interface GatewayIdentity {
 
 export class LagerApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  /**
+   * Resten af appens fejlsvar ud over error, fx faktureretTil, afregning og afregnetTil ved et
+   * afregnet vindue, konflikter og valg ved overlap, advarsler eller fjernes: det, brugeren skal
+   * se for at vælge.
+   */
+  readonly detaljer?: Record<string, unknown>;
+  constructor(status: number, message: string, detaljer?: Record<string, unknown>) {
     super(message);
     this.name = 'LagerApiError';
     this.status = status;
+    if (detaljer && Object.keys(detaljer).length) this.detaljer = detaljer;
   }
 }
 
@@ -200,7 +207,8 @@ export class LagerClient {
       if (!res.ok) {
         const msg = appensFejl ? String((data as { error: unknown }).error) : `HTTP ${res.status}`;
         const efter = res.status === 429 ? retryAfterMs(res.headers.get('retry-after')) : undefined;
-        throw new LagerApiError(res.status, efter !== undefined ? `${msg} (prøv igen om ${Math.ceil(efter / 1000)} s)` : msg);
+        const { error: _e, ...detaljer } = appensFejl ? (data as Record<string, unknown>) : {};
+        throw new LagerApiError(res.status, efter !== undefined ? `${msg} (prøv igen om ${Math.ceil(efter / 1000)} s)` : msg, detaljer);
       }
       return data as T;
     }

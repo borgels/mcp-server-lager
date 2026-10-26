@@ -50,7 +50,8 @@
                           "type": "string"
                         },
                         "fotoId": {
-                          "type": "string"
+                          "type": "string",
+                          "description": "Skadens foto; påkrævet og kun gemt, når skadet er sat"
                         },
                         "dele": {
                           "type": "array",
@@ -76,6 +77,9 @@
         "responses": {
           "201": {
             "description": "{ afleveret: [{ tag, plads }], karantaene, klargoering, ukendte, afvist }"
+          },
+          "409": {
+            "description": "kode: allerede_afleveret. En linje er bogført før med samme nøgle, men med en anden skademarkering (fx uden skade, og nu sendt som skadet): { linje, tag, slags, skadet }. Intet i indsendelsen er bogført; send resten uden linjen, og meld skaden for sig."
           }
         }
       }
@@ -267,7 +271,7 @@
         "leje_salg"
       ],
       "get": {
-        "summary": "Afregningen grupperet pr. sag med mangler",
+        "summary": "Afregningen grupperet pr. sag med mangler (advarsler; en fejlregistreret enhed giver kraeverGenberegning, #200) og overlap: lejeperioder for samme model på samme sag, der overlapper (vises før godkendelse, spærrer ikke, #200)",
         "parameters": [
           {
             "name": "id",
@@ -914,9 +918,11 @@
                 "til_service",
                 "savnet",
                 "kasseret",
-                "solgt"
+                "solgt",
+                "fejlregistreret"
               ]
-            }
+            },
+            "description": "Uden status står fejlregistrerede enheder (#200) ikke på listen"
           },
           {
             "name": "model",
@@ -942,7 +948,7 @@
         }
       },
       "post": {
-        "summary": "Opret enheder; antal > 1 giver fortløbende tags (og så ingen tag eller serienummer). Pladsen tjekkes mod placeringsreglerne med enhedens særhåndteringsmærker (409 med grunden). maerker udeladt følger modellens standard; et nyt mærke skal være slået til (422)",
+        "summary": "Opret enheder i én transaktion; antal > 1 giver fortløbende tags (og så ingen tag eller serienummer). Pladsen tjekkes mod placeringsreglerne med enhedens særhåndteringsmærker (409 med grunden). maerker udeladt følger modellens standard; et nyt mærke skal være slået til (422). Tekst trimmes, og koebspris skal være 0–100.000.000 (422). Værnene fra #200 giver 409 med advarsler, før noget skrives: pris (mere end 10 gange over eller under modellens kostpris, eller uden den de andre enheders median), gentaget (en værdi, der ser ud til at være skrevet to gange, fx 27992799) og dublet (antal > 1, og modellen har enheder fra samme bilag eller samme leverandør og købsdato; teksten nævner antallene). Send igen med accepter for at oprette alligevel; et genforsøg med samme Idempotency-Key spørger ikke igen",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -1015,6 +1021,18 @@
                   "bekraeft": {
                     "type": "boolean",
                     "description": "Påkrævet for at oprette enheden uden et af modellens mærker med et værn (409 med mærkets navn og fjernes ellers, #161)"
+                  },
+                  "accepter": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "pris",
+                        "gentaget",
+                        "dublet"
+                      ]
+                    },
+                    "description": "Advarslerne, kalderen har sagt ja til (#200), efter et 409 med advarsler"
                   }
                 },
                 "required": [
@@ -1029,10 +1047,10 @@
             "description": "{ enheder, tags }"
           },
           "409": {
-            "description": "Pladsen bryder placeringsreglerne (fx mærket udstyr på en almindelig hylde), eller: Et mærke med et værn fjernes, og bekraeft mangler: error har mærkets navn, fjernes er [{ noegle, navn }] (#161)"
+            "description": "Advarsler, der ikke er accepteret (#200): { error, advarsler: [{ slags: pris | gentaget | dublet, tekst, felt? }] }; pladsen bryder placeringsreglerne (fx mærket udstyr på en almindelig hylde), eller: Et mærke med et værn fjernes, og bekraeft mangler: error har mærkets navn, fjernes er [{ noegle, navn }] (#161)"
           },
           "422": {
-            "description": "Et mærke findes ikke eller er slået fra"
+            "description": "Et mærke findes ikke eller er slået fra, eller et felt er ugyldigt (koebspris, koebsdato, antal)"
           }
         }
       }
@@ -1324,6 +1342,88 @@
             "description": "Ukendt felt, forkert type eller påkrævet felt mangler"
           }
         }
+      }
+    },
+    "/ansvarlig/enheder/{tag}/fejlregistrer": {
+      "post": {
+        "summary": "Fejlregistrér en enhed, der er oprettet ved en fejl (#200): status fejlregistreret med begrundelse og en bevægelse «fejlregistrering»; bevægelser, perioder og afregningslinjer bliver stående. Lageret foldes først under sin lås. Har enheden aktive lejeperioder, skal perioder med: annuller, eller flyt med flytTil (en enhed på samme lager; en åben periode lukkes i dag, medmindre målet er ude på samme sag; overlapper en periode målets egne, 409, og intet er gjort). En faktureret periode (linjer på en bogført afregning), der flyttes, annulleres ikke: den lukkes ved det fakturerede og står på enheden (lukkedePerioder), og kun dagene efter flyttes til målet; det bogførte røres ikke. En faktureret periode, der annulleres, krediteres på næste afregning og kræver krediter: true. Afregninger, der ikke er godkendt og har linjer for enheden, markeres til genberegning: en kladde kan ikke lægges i e-conomic, og en afventende ikke godkendes, før den er genberegnet eller afvist. Står enheden hos en person, kræver det bekraeftHos: true. Solgt udstyr, en enhed i karantæne, klargøring eller et procesforløb og et sæt med dele kan ikke fejlregistreres (409). Pladsen, holderen, projektet og udlånet tages af enheden, og en åben booking på den mister tagget (revision pr. booking, bookinger i svaret)",
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "begrundelse": {
+                    "type": "string"
+                  },
+                  "perioder": {
+                    "type": "string",
+                    "enum": [
+                      "annuller",
+                      "flyt"
+                    ],
+                    "description": "Hvad der sker med de aktive lejeperioder"
+                  },
+                  "flytTil": {
+                    "type": "string",
+                    "description": "Enheden, perioderne flyttes til (med perioder: flyt)"
+                  },
+                  "krediter": {
+                    "type": "boolean",
+                    "description": "Ja til at annullere fakturerede perioder (de krediteres)"
+                  },
+                  "krediteretManuelt": {
+                    "type": "boolean",
+                    "description": "Det fakturerede krediteres manuelt i e-conomic: intet reguleres; ved flyt flyttes hele perioden, og det fakturerede faktureres ikke igen på målet (ikke sammen med krediter)"
+                  },
+                  "bekraeftHos": {
+                    "type": "boolean",
+                    "description": "Ja til at fejlregistrere en enhed, der står hos en person"
+                  }
+                },
+                "required": [
+                  "begrundelse"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ enhed, annulleredePerioder, lukkedePerioder: [{ periode, til }], flyttedePerioder: [{ fra, til, lukket }], flytTil, afregninger: [{ id, nummer, status }], bookinger: [{ id, projekt, person, fra, til }], varHos }"
+          },
+          "403": {
+            "description": "krediter eller krediteretManuelt gennem MCP-gatewayen: kun i lager-appen"
+          },
+          "409": {
+            "description": "Allerede fejlregistreret, solgt, spærret (karantæne, klargøring, procesforløb), et sæt med dele, hos en person uden bekraeftHos (hos i svaret), aktive lejeperioder uden perioder (aktivePerioder), fakturerede perioder uden krediter (fakturerede), eller en flyttet periode overlapper målets. Med perioder: annuller uden krediteretManuelt også, når en periode allerede er krediteret manuelt (krediteretManuelt: periode-id'erne i svaret): den kan ikke krediteres på næste afregning"
+          },
+          "422": {
+            "description": "Begrundelse mangler, flytTil uden perioder: flyt, eller krediter og krediteretManuelt sammen (vælg én: kreditering på næste afregning eller manuelt i e-conomic)"
+          }
+        },
+        "description": "Gennem MCP-gatewayen: kun den lageransvarlige, og krediter: true eller krediteretManuelt: true afvises (403). At kreditere faktureret leje er bogføring og sker i appen; flyt eller annuller perioder, der ikke er faktureret, og bekraeftHos, går."
       }
     },
     "/ansvarlig/enhedsfelter": {
@@ -1882,7 +1982,7 @@
     },
     "/ansvarlig/forbrug/{id}": {
       "delete": {
-        "summary": "Annullér et udtag",
+        "summary": "Annullér et udtag: varen lægges tilbage i beholdningen, og en kladde med udtaget markeres til genberegning. Er udtaget faktureret (linjer på en bogført afregning), krediteres det på næste afregning. Gennem MCP-gatewayen afvises det (403 med afregning), når udtaget står på en afregning, der er bogført, afventer godkendelse eller har en uafklaret bogføring: kreditering sker i appen",
         "parameters": [
           {
             "name": "id",
@@ -1914,6 +2014,12 @@
         "responses": {
           "200": {
             "description": "{ ok: true }"
+          },
+          "403": {
+            "description": "Gennem MCP-gatewayen: udtaget står på en afregning, der er bogført, afventer godkendelse eller er uafklaret (afregning)"
+          },
+          "409": {
+            "description": "Allerede annulleret"
           }
         }
       }
@@ -2071,7 +2177,19 @@
         }
       },
       "post": {
-        "summary": "Ny forbrugsvare med første pris; med kategoriskabelon (#57) også egenskaberne. Går varenummeret igen i selskabet, rettes den vare i stedet. Står en stregkode allerede på en vare i selskabet, er det 409 med { vare: { id, navn, aktiv }, stregkode }, og intet ændres (heller ikke en vare, der er slået fra); peger varenummer og stregkode på to forskellige varer, er det også 409",
+        "summary": "Ny forbrugsvare med første pris; med kategoriskabelon (#57) også egenskaberne. Går varenummeret igen i selskabet, rettes den vare i stedet. Står en stregkode allerede på en vare i selskabet, er det 409 med { vare: { id, navn, aktiv }, stregkode }, og intet ændres (heller ikke en vare, der er slået fra); peger varenummer og stregkode på to forskellige varer, er det også 409. Med Idempotency-Key giver et genforsøg samme vare, ikke en ny. Gennem MCP-gatewayen: går varenummeret igen, og er der en pris med, er det 409 (prisen sættes med POST /ansvarlig/priser)",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -3715,6 +3833,113 @@
         }
       }
     },
+    "/ansvarlig/lagre/{id}/adresse": {
+      "put": {
+        "operationId": "lager_ansvarlig_lager_adresse",
+        "x-mcp": {
+          "vaerktoej": true
+        },
+        "summary": "Sæt lagerets adresse og/eller punkt på kortet. En ny adresse slås op i backenden og bliver til koordinater; en uændret adresse beholder sit punkt. koordinater sætter punktet med hånden (kilde manuel); null fjerner. Kun lageransvarlig for lageret",
+        "description": "adresse: null fjerner adresse og punkt. Findes adressen ikke, eller svarer opslaget ikke, gemmes den alligevel uden punkt (geokodning: ikke_fundet eller fejl), og punktet kan sættes med koordinater. Postnummer og by fra opslaget udfylder kun tomme felter.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "adresse": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/Lageradresse"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "koordinater": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "breddegrad": {
+                            "type": "number",
+                            "minimum": -90,
+                            "maximum": 90
+                          },
+                          "laengdegrad": {
+                            "type": "number",
+                            "minimum": -180,
+                            "maximum": 180
+                          }
+                        },
+                        "required": [
+                          "breddegrad",
+                          "laengdegrad"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ lager, geokodning, grund? }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lager": {
+                      "$ref": "#/components/schemas/Lagerkort"
+                    },
+                    "geokodning": {
+                      "type": "string",
+                      "enum": [
+                        "fundet",
+                        "ikke_fundet",
+                        "fejl",
+                        "fra",
+                        "uaendret",
+                        "manuel"
+                      ],
+                      "description": "fundet: punktet er sat ud fra adressen; ikke_fundet/fejl: adressen er gemt uden punkt; fra: driften har slået opslaget fra; uaendret: adressen var den samme; manuel: punktet blev sendt med"
+                    },
+                    "grund": {
+                      "type": "string",
+                      "description": "Kun ved fejl: hvorfor opslaget ikke svarede"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Ikke lageransvarlig for lageret, eller ingen adgang til det"
+          },
+          "422": {
+            "description": "Gaden mangler, landet er ikke en kode på to bogstaver, koordinaterne ligger uden for kortet, eller et punkt uden adresse"
+          }
+        }
+      }
+    },
     "/ansvarlig/lokationer": {
       "post": {
         "operationId": "lager_ansvarlig_lokation_opret",
@@ -3833,6 +4058,7 @@
             }
           }
         ],
+        "description": "Egenskaberne flettes ind; lagerets egne nøgler (auto_vaeg, uden_vaegge, zone_er_plads, forbrug_standard) og rasterets fag (fag_layout, fyld_med) kan ikke rettes her (#208). En zone, der selv er en plads (et område med zone_er_plads), kan ikke skifte type.",
         "requestBody": {
           "required": true,
           "content": {
@@ -3873,6 +4099,9 @@
           },
           "409": {
             "description": "version passer ikke (ændret siden), eller koden er brugt"
+          },
+          "422": {
+            "description": "Et felt er ugyldigt, en reserveret egenskab er med, typen må ikke skiftes (børn, enheder, eller en zone, der selv er en plads)"
           }
         }
       }
@@ -4202,7 +4431,7 @@
     "/ansvarlig/lokationer/{id}/lejet": {
       "put": {
         "operationId": "lager_ansvarlig_lejemaal_ret",
-        "summary": "Ret lejemålet på et depotrum eller en container. Kun felterne, der er med, ændres; null tømmer, og adgang erstatter listen (personer fra kontoen, der kan vælges på lageret, som personvælgeren). Koderne rettes kun i appen",
+        "summary": "Ret lejemålet på et depotrum eller en container. Kun felterne, der er med, ændres; null tømmer, og adgang erstatter listen (personer fra kontoen, der kan vælges på lageret, som personvælgeren). Koderne rettes kun i appen. Fjernes nogen fra adgangen, mens der er en kode, siger svarets kodeskift.fjernet hvem: skift koden hos udbyderen (#212)",
         "parameters": [
           {
             "name": "id",
@@ -4627,7 +4856,7 @@
         }
       },
       "post": {
-        "summary": "Ny model med første prisversion; med kategoriskabelon (#57) også egenskaberne, og kategori kan udelades (bliver skabelonens navn). Med Idempotency-Key (valgfri, #51) giver et genforsøg den samme model, ikke en ny",
+        "summary": "Ny model med første prisversion; med kategoriskabelon (#57) også egenskaberne, og kategori kan udelades (bliver skabelonens navn). Med Idempotency-Key (valgfri, #51) giver et genforsøg den samme model, ikke en ny. Gennem MCP-gatewayen: går varenummeret igen, og er der en pris med, er det 409 (prisen sættes med POST /ansvarlig/priser), så en kendt models pris aldrig overskrives af en oprettelse",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -6053,7 +6282,19 @@
         }
       },
       "post": {
-        "summary": "En manuel lejeperiode: historik eller en manglende registrering",
+        "summary": "En manuel lejeperiode: historik eller en manglende registrering. Projektet skal høre til lagerets konto (404 ellers), og dagene må ikke falde i et vindue, der er bogført, afventer godkendelse eller har en uafklaret bogføring for projektets køber (409 med afregning og afregnetTil): de ville aldrig blive faktureret. Med Idempotency-Key giver et genforsøg samme periode, ikke en til",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -6095,6 +6336,12 @@
         "responses": {
           "201": {
             "description": "{ periode }"
+          },
+          "404": {
+            "description": "Enheden eller projektet (uden for lagerets konto)"
+          },
+          "409": {
+            "description": "Overlap, en fejlregistreret enhed, eller dage i et afregnet vindue for køberen (afregning, afregnetTil)"
           }
         }
       }
@@ -6104,7 +6351,7 @@
         "leje_salg"
       ],
       "put": {
-        "summary": "Ret en lejeperiode",
+        "summary": "Ret en lejeperiode. Låste dage røres ikke (#207, #236): låst til er det seneste af de bogførte (eller uafklarede, #219) leje-linjer og manueltAfregnetTil. På en låst periode kan projektet og starten ikke rettes, og slutningen tidligst være det låste (409 med faktureretTil); brug /ansvarlig/projekter/{id}/flyt til at flytte resten. Med krediteretManuelt: true (kun i appen) rettes den, hvor den står, uden regulering: fra kun frem, til kun tilbage (frem eller åben kun fra en slutdato på eller efter det låste), og sagen kan ikke skiftes; står den på en afregning, der ikke er bogført, er svaret 409. En periode på en fejlregistreret enhed kan ikke rettes. Dage, rettelsen lægger til (alle, når sagen skifter), må ikke falde i et vindue, der er bogført, afventer godkendelse eller er uafklaret for køberen (409 med afregning). Afregninger, der ikke er godkendt og bliver berørt, markeres til genberegning. Én transaktion; med Idempotency-Key giver et genforsøg samme svar",
         "parameters": [
           {
             "name": "id",
@@ -6113,6 +6360,16 @@
             "schema": {
               "type": "integer"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
           }
         ],
         "requestBody": {
@@ -6138,6 +6395,10 @@
                   },
                   "begrundelse": {
                     "type": "string"
+                  },
+                  "krediteretManuelt": {
+                    "type": "boolean",
+                    "description": "Det fakturerede krediteres manuelt i e-conomic: ingen regulering (kun i lager-appen)"
                   }
                 },
                 "required": [
@@ -6150,11 +6411,17 @@
         "responses": {
           "200": {
             "description": "{ periode }"
+          },
+          "403": {
+            "description": "krediteretManuelt gennem MCP-gatewayen: kun i lager-appen"
+          },
+          "409": {
+            "description": "Annulleret, en fejlregistreret enhed, en afledt periodes datoer, overlap, låste dage (faktureretTil), nye dage i et afregnet vindue (afregning); med krediteretManuelt: på en afregning, der ikke er bogført, fra tidligere, til senere ind i det låste, eller en anden sag"
           }
         }
       },
       "delete": {
-        "summary": "Annullér en lejeperiode",
+        "summary": "Annullér en lejeperiode. Er den bogført, krediteres de bogførte dage på næste afregning, og det kræver krediter: true; med krediteretManuelt: true reguleres intet, og det bogførte krediteres i e-conomic. Begge er kun i lager-appen (403 gennem MCP-gatewayen): en agent krediterer aldrig. En bogført periode uden et af dem er 409 (faktureretTil); en periode, der allerede er krediteret manuelt (manueltAfregnetTil), kræver krediteretManuelt, også med krediter (409); begge på én gang er 422. Afregninger, der ikke er godkendt og bliver berørt, markeres til genberegning. Med Idempotency-Key giver et genforsøg samme svar",
         "parameters": [
           {
             "name": "id",
@@ -6163,6 +6430,16 @@
             "schema": {
               "type": "integer"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
           }
         ],
         "requestBody": {
@@ -6174,6 +6451,14 @@
                 "properties": {
                   "begrundelse": {
                     "type": "string"
+                  },
+                  "krediter": {
+                    "type": "boolean",
+                    "description": "Ja til at kreditere de bogførte dage på næste afregning"
+                  },
+                  "krediteretManuelt": {
+                    "type": "boolean",
+                    "description": "Det bogførte krediteres manuelt i e-conomic: ingen regulering (kun i lager-appen)"
                   }
                 },
                 "required": [
@@ -6185,7 +6470,16 @@
         },
         "responses": {
           "200": {
-            "description": "{ ok: true }"
+            "description": "{ periode }"
+          },
+          "403": {
+            "description": "krediter eller krediteretManuelt gennem MCP-gatewayen: kun i lager-appen"
+          },
+          "409": {
+            "description": "Allerede annulleret; bogført uden krediter eller krediteretManuelt (faktureretTil); krediteret manuelt uden krediteretManuelt; faktureret på en fejlregistreret enhed uden krediteretManuelt; eller med krediteretManuelt på en afregning, der ikke er bogført"
+          },
+          "422": {
+            "description": "Begrundelse mangler, eller både krediter og krediteretManuelt"
           }
         }
       }
@@ -6743,7 +7037,7 @@
         "leje_salg"
       ],
       "get": {
-        "summary": "Priser og historik (?model=|tag=|vare=), mangler pris uden filter",
+        "summary": "Prishistorikken for ét emne (model, tag eller vare) med dagens sats for en enhed; uden emne lagerets enheder uden pris i dag",
         "parameters": [
           {
             "name": "lager",
@@ -6752,11 +7046,110 @@
               "type": "integer"
             },
             "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Model-id (en model i lagerets selskab)"
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Enhedens mærke eller serienummer (på lageret)"
+          },
+          {
+            "name": "vare",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Forbrugsvarens id (i lagerets selskab)"
           }
         ],
         "responses": {
           "200": {
-            "description": "{ priser }"
+            "description": "{ versioner: [{ gyldigFra, kostpris, salgspris, dagssats, bilag, kilde, note, af, ts }], dagens } eller { udenPris }"
+          },
+          "404": {
+            "description": "Emnet hører ikke til lageret eller dets selskab"
+          }
+        }
+      },
+      "post": {
+        "summary": "Sæt en pris med gyldighed på en model, en enhed (tag) eller en forbrugsvare: en ny prisversion fra gyldigFra (de tidligere versioner bliver stående i historikken). Findes der allerede en version med samme gyldigFra, overskrives den (upsert). Leje fra gyldigFra og frem regnes med den nye dagssats, når afregningen beregnes; det bogførte røres ikke. Med Idempotency-Key giver et genforsøg samme svar og ingen ekstra version",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "modelId": {
+                    "type": "integer"
+                  },
+                  "tag": {
+                    "type": "string"
+                  },
+                  "forbrugsvareId": {
+                    "type": "integer"
+                  },
+                  "gyldigFra": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  },
+                  "kostpris": {
+                    "type": "number"
+                  },
+                  "salgspris": {
+                    "type": "number"
+                  },
+                  "dagssats": {
+                    "type": "number"
+                  },
+                  "bilag": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "gyldigFra"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ pris: { gyldigFra, kostpris, salgspris, dagssats, kilde } }"
+          },
+          "403": {
+            "description": "Emnet hører ikke til lageret eller dets selskab"
+          },
+          "422": {
+            "description": "gyldigFra er ikke ÅÅÅÅ-MM-DD"
           }
         }
       }
@@ -7261,6 +7654,280 @@
           },
           "503": {
             "description": "LAGER_PRODUKTOPSLAG er sat forkert"
+          }
+        }
+      }
+    },
+    "/ansvarlig/projekter": {
+      "x-moduler": [
+        "leje_salg",
+        "projekter"
+      ],
+      "get": {
+        "operationId": "lager_ansvarlig_projekter",
+        "summary": "Projekterne under lagerets konto med enheder ude nu (udeNu) og lejedage i indeværende måned til og med i dag (dageIMaaned). Folder nye bevægelser først",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "i_gang",
+                "uden",
+                "afsluttede",
+                "alle"
+              ]
+            },
+            "description": "i_gang (standard): aktive, ikke afsluttede; uden: de samme uden noget ude nu; afsluttede: afsluttede med perioder på lageret; alle"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Søg i navn, sagsnummer og kode"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ projekter: [{ id, code, navn, sagsnummer, stadie, aktiv, start, slut, udeNu, dageIMaaned, perioder }] }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/projekter/{id}": {
+      "x-moduler": [
+        "leje_salg",
+        "projekter"
+      ],
+      "get": {
+        "operationId": "lager_ansvarlig_projekt",
+        "summary": "Ét projekt: dets lejeperioder på lageret (fra, til, kilde bevaegelse/manuel, faktureretTil = sidste bogførte dag, udenForProjekt), standard { fra, til } til nye perioder (projektets start og slut, aldrig i fremtiden: et projekt, der ikke er slut, giver en åben periode) og historik (hvem, hvornår, før/efter, begrundelse). 404 for et projekt uden for lagerets konto",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "annullerede",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "1: også annullerede perioder"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ projekt, perioder, annullerede, historik }"
+          },
+          "404": {
+            "description": "Projektet findes ikke eller hører ikke til lagerets konto"
+          }
+        }
+      }
+    },
+    "/ansvarlig/projekter/{id}/flyt": {
+      "x-moduler": [
+        "leje_salg",
+        "projekter"
+      ],
+      "post": {
+        "operationId": "lager_ansvarlig_projekt_flyt",
+        "x-mcp": {
+          "vaerktoej": true,
+          "destruktiv": true,
+          "bekraeftes": true,
+          "grund": "Lukker perioder og åbner nye på et andet projekt, så lejen faktureres en anden køber fra datoen. Agenten viser perioderne, målprojektet og datoen og sender kun efter brugerens udtrykkelige ja."
+        },
+        "summary": "Destruktiv, bekræftes af brugeren. Flyt perioder (perioder: id'er) eller enheder (tags: deres perioder på projektet, der løber på datoen) til et andet projekt fra en dato: den gamle periode lukkes dagen før, og en ny tastet åbnes på målet med resten; begynder perioden på eller efter datoen, flyttes den hel. Bogførte dage røres aldrig: fra skal ligge efter det bogførte (409 med faktureretTil). Står enheden ude på projektet med en åben periode, står den bagefter på målet. Et afsluttet eller inaktivt målprojekt, en fejlregistreret enhed og flyttede dage i et vindue, der er bogført, afventer godkendelse eller er uafklaret for målets køber (afregning, afregnetTil), er 409. Alle eller ingen, i én transaktion; afregninger, der ikke er godkendt og bliver berørt, markeres til genberegning",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "tilProjektId": {
+                    "type": "integer"
+                  },
+                  "fra": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  },
+                  "perioder": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "begrundelse": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tilProjektId",
+                  "fra",
+                  "begrundelse"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ flyttet: [{ periode, ny, hel, tag }], enheder: [tag], afregninger: [{ id, nummer, status }] }"
+          },
+          "409": {
+            "description": "Bogførte dage (faktureretTil), en periode, der ikke står på projektet, eller en enhed uden periode på datoen"
+          },
+          "422": {
+            "description": "Datoen er i fremtiden eller efter periodens slut, eller begrundelse mangler"
+          }
+        }
+      }
+    },
+    "/ansvarlig/projekter/{id}/perioder": {
+      "x-moduler": [
+        "leje_salg",
+        "projekter"
+      ],
+      "post": {
+        "operationId": "lager_ansvarlig_projekt_tilfoej",
+        "x-mcp": {
+          "vaerktoej": true,
+          "destruktiv": true,
+          "bekraeftes": true,
+          "grund": "Lægger leje på enhederne, som faktureres, og vedOverlap: tastet lukker eller annullerer scannede perioder. Agenten viser enheder, datoer, begrundelse og et eventuelt valg ved overlap og sender kun efter brugerens udtrykkelige ja."
+        },
+        "summary": "Destruktiv, bekræftes af brugeren. Tilføj enheder til projektet: én tastet periode pr. enhed med en fælles begrundelse, alle eller ingen, i én transaktion. fra/til: brug projektets standard fra GET /ansvarlig/projekter/{id}; ingen dato i fremtiden, og uden til er perioden åben, til næste bevægelse lukker den. Overlap med en tastet periode er 409. Overlap med en scannet er 409 med konflikter, til vedOverlap er valgt: scannet (den tastede får kun de dage, det scannede ikke dækker) eller tastet (det scannede lukkes dagen før eller annulleres, og en rest efter tastes; bogførte dage kan det tastede ikke tage). Perioder uden for projektets datoer giver advarsler, ikke en fejl. Dage i et vindue, der er bogført, afventer godkendelse eller er uafklaret for køberen, er 409 (afregning, afregnetTil): de ville aldrig blive faktureret. Afregninger, der ikke er godkendt og bliver berørt, markeres til genberegning",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "fra": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD"
+                  },
+                  "til": {
+                    "type": "string",
+                    "description": "ÅÅÅÅ-MM-DD; tom = åben"
+                  },
+                  "begrundelse": {
+                    "type": "string"
+                  },
+                  "vedOverlap": {
+                    "type": "string",
+                    "enum": [
+                      "scannet",
+                      "tastet"
+                    ]
+                  }
+                },
+                "required": [
+                  "tags",
+                  "fra",
+                  "begrundelse"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ perioder: [id], lukket: [id], annulleret: [id], sprunget: [{ tag, grund }], advarsler: [{ slags, tekst }], afregninger: [{ id, nummer, status }] }"
+          },
+          "409": {
+            "description": "Overlap med en tastet periode, overlap med en scannet uden vedOverlap (konflikter, valg), bogførte dage, eller en fejlregistreret enhed"
+          },
+          "422": {
+            "description": "Begrundelse, datoer (også i fremtiden) eller enheder mangler"
           }
         }
       }
@@ -9247,7 +9914,19 @@
         }
       },
       "post": {
-        "summary": "Ny opgave på én enhed, én model (alle dens enheder) eller én lokation. Uden interval en engangsdato (fx garanti)",
+        "summary": "Ny opgave på én enhed, én model (alle dens enheder) eller én lokation. Uden interval en engangsdato (fx garanti). Med Idempotency-Key giver et genforsøg samme opgave",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -11538,7 +12217,7 @@
       },
       "post": {
         "operationId": "lager_ansvarlig_iot_enhed_opret",
-        "summary": "Map en HA-entitet til en lokation. Kræver lageransvarlig på ALLE installationens lagre (HA er installationens), og lokationen på et af dine lagre; 409 hvis entiteten allerede er mappet",
+        "summary": "Map en HA-entitet til en lokation. Kræver lageransvarlig på ALLE installationens lagre (HA er installationens), og lokationen på et af dine lagre; 409 hvis entiteten allerede er mappet. Gennem MCP-gatewayen afvises et kamera og kamerafelterne (kameraAdgang, go2rtcStroem) med 403: kameraer sættes kun op i appen",
         "requestBody": {
           "required": true,
           "content": {
@@ -11767,7 +12446,7 @@
       },
       "put": {
         "operationId": "lager_ansvarlig_iot_enhed_ret",
-        "summary": "Ret enheden (felterne i kroppen). Flyttes den, skal du være ansvarlig begge steder; en ny haEntityId eller aktiv: true på en nedlagt kræver lageransvarlig på alle lagre",
+        "summary": "Ret enheden (felterne i kroppen). Flyttes den, skal du være ansvarlig begge steder; en ny haEntityId eller aktiv: true på en nedlagt kræver lageransvarlig på alle lagre. Gennem MCP-gatewayen afvises et kamera og kamerafelterne (kameraAdgang, go2rtcStroem) med 403: kameraer sættes kun op i appen",
         "parameters": [
           {
             "name": "id",
@@ -11864,7 +12543,7 @@
       },
       "delete": {
         "operationId": "lager_ansvarlig_iot_enhed_fjern",
-        "summary": "Fjern enheden: slettes uden målinger, ellers nedlægges den, og historikken bliver",
+        "summary": "Fjern enheden: slettes uden målinger, ellers nedlægges den, og historikken bliver. Gennem MCP-gatewayen afvises et kamera og kamerafelterne (kameraAdgang, go2rtcStroem) med 403: kameraer sættes kun op i appen",
         "parameters": [
           {
             "name": "id",
@@ -13702,6 +14381,35 @@
                       "type": "array",
                       "items": {
                         "$ref": "#/components/schemas/Kategoriskabelon"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lagre": {
+      "get": {
+        "operationId": "lager_lagre",
+        "x-mcp": {
+          "vaerktoej": true
+        },
+        "summary": "Dine lagre med adresse, punkt på kortet, selskabet bag, udlejerne og antal enheder. Kun lagre, du er medarbejder på (ikke et, du kun er kiosk på)",
+        "responses": {
+          "200": {
+            "description": "{ lagre: Lagerkort[] }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lagre": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Lagerkort"
                       }
                     }
                   }
@@ -16469,6 +17177,215 @@
         }
       }
     },
+    "/scan/forslag": {
+      "get": {
+        "summary": "Scannerens forslag (#229): enheder og modeller, der passer på søgningen i flowet, eller en valgt models enheder med «Tag en ledig». Kun læsning, for medarbejdere",
+        "description": "Flowet bestemmer, hvad der foreslås: afhent det, der står på lageret (på lager; karantæne og klargøring med som spærret), aflever det, der står ude på dig, overtag det, der står ude hos en anden. Hver enhed har scannerens afgørelse (som /opslag/{kode}) og valgbar: om scanneren ville tage den i flowet; det spærrede står sidst med grunden i afgoerelse. Søgningen er «hvor er X»'s: alle ord skal passe i mærket, serienummeret, modellens navn, fabrikat, varenummer og kategori eller hjemmepladsens kode og navn; et præcist mærke eller serienummer står først. Modeller kun med mindst to enheder i flowet. booket: en bestemt enhed booket i dag til en anden person og et andet projekt (kun afhent); den kan tages, men foreslås ikke af «Tag en ledig». Omfanget er ?lager= eller alle dine lagre, og svaret har et loft.",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "flow",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "afhent",
+                "aflever",
+                "overtag"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Søgningen, mindst 2 tegn (422 ellers); udelades med model"
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "En valgt model: dens enheder i flowet (q bruges ikke) og forslag, enheden «Tag en ledig» vælger"
+          },
+          {
+            "name": "projekt",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Afhents projekt: en booking til det er ikke booket til andre"
+          },
+          {
+            "name": "graense",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30
+            },
+            "description": "Højst så mange enheder; standard 12"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Forslagene",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "flow": {
+                      "type": "string"
+                    },
+                    "q": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "integer"
+                            },
+                            "navn": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Den valgte model (med model), ellers null"
+                    },
+                    "enheder": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "afgoerelse": {
+                            "type": "object",
+                            "description": "Scannerens afgørelse: { slags: klar | overtagelse | samme_person | spaerret (med grund) }"
+                          },
+                          "enhed": {
+                            "$ref": "#/components/schemas/Enhed"
+                          },
+                          "valgbar": {
+                            "type": "boolean",
+                            "description": "Scanneren tager den i flowet"
+                          },
+                          "sti": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "Hjemmepladsens sti, «Hjem › Skur › R1-3»"
+                          },
+                          "booket": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "projekt": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "person": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "fra": {
+                                    "type": "string"
+                                  },
+                                  "til": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "modeller": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "fabrikat": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "kategori": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "valgbare": {
+                            "type": "integer",
+                            "description": "Enheder, der kan vælges (afhent: de ledige)"
+                          },
+                          "ialt": {
+                            "type": "integer",
+                            "description": "Enheder i flowet"
+                          }
+                        }
+                      }
+                    },
+                    "forslag": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Med model: mærket, «Tag en ledig» vælger (valgbar, ikke booket til andre, helst med plads, den der har stået længst)"
+                    },
+                    "flere": {
+                      "type": "boolean",
+                      "description": "Der er flere enheder end loftet"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Ukendt flow, for kort søgning eller et ugyldigt id eller loft"
+          }
+        }
+      }
+    },
     "/scenarier": {
       "get": {
         "operationId": "lager_scenarier",
@@ -17932,7 +18849,8 @@
               "kasseret",
               "til_service",
               "savnet",
-              "solgt"
+              "solgt",
+              "fejlregistreret"
             ]
           },
           "hos": {
@@ -18762,7 +19680,7 @@
               "object",
               "null"
             ],
-            "description": "Ved oprettelse startværdien; ved retning flettes den ind (et felt med null fjernes)"
+            "description": "Ved oprettelse startværdien; ved retning flettes den ind (et felt med null fjernes; null i stedet for objektet tømmer brugerens felter). Lagerets egne nøgler auto_vaeg, uden_vaegge, zone_er_plads og forbrug_standard sættes kun af lageret selv (vaegge: false ved oprettelsen af et rum, zonerne, forbrugsvarernes standard) og er 422 her. Rasterets fag (fag_layout, fyld_med) gives kun ved oprettelse med skabelon; rasterets mål (raster_x_mm, raster_y_mm, kolonner, raekker …) kan rettes, men skal være hele tal inden for grænserne og passe med fag_layout (422 ellers)"
           },
           "kapacitet": {
             "type": [
@@ -22244,6 +23162,143 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "Lageradresse": {
+        "type": "object",
+        "properties": {
+          "gade": {
+            "type": "string",
+            "description": "Gade og husnummer, fx «Hovedgaden 12»"
+          },
+          "postnr": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "land": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Za-z]{2}$",
+            "description": "ISO 3166-1 alpha-2, fx DK; styrer opslaget (DK: DAWA, ellers Nominatim, efter driftens LAGER_GEOKODNING)"
+          }
+        },
+        "required": [
+          "gade"
+        ]
+      },
+      "Lagerkort": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "adresse": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Lageradresse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "adresseForeslaaet": {
+            "type": "boolean",
+            "description": "Adressen er et forslag ud fra lagerets navn, som ingen har set og gemt endnu; punktet mangler, til den gemmes"
+          },
+          "koordinater": {
+            "oneOf": [
+              {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "breddegrad": {
+                        "type": "number",
+                        "minimum": -90,
+                        "maximum": 90
+                      },
+                      "laengdegrad": {
+                        "type": "number",
+                        "minimum": -180,
+                        "maximum": 180
+                      }
+                    },
+                    "required": [
+                      "breddegrad",
+                      "laengdegrad"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kilde": {
+                        "type": "string",
+                        "enum": [
+                          "geokodet",
+                          "manuel"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "WGS84; null = ikke på kortet endnu"
+          },
+          "selskab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "navn": {
+                "type": "string"
+              }
+            }
+          },
+          "udlejere": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "navn": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Selskaberne, der udlejer fra lageret (i dag selskabet bag lageret)"
+          },
+          "enheder": {
+            "type": "integer",
+            "description": "Enheder på lageret (ikke solgte eller fejlregistrerede)"
+          },
+          "kanRette": {
+            "type": "boolean",
+            "description": "Du er lageransvarlig og må rette adressen"
           }
         }
       }

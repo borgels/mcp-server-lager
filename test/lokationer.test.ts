@@ -79,7 +79,7 @@ describe('lokationstræet', () => {
     const fetchFn = vi.fn(async () => svar(200, {}));
     const mcp = await forbind(fetchFn as unknown as typeof fetch);
     await mcp.callTool({ name: 'lager_ansvarlig_lokation_flyt', arguments: { lokationId: 12, parentId: 7, version: 3 } });
-    await mcp.callTool({ name: 'lager_ansvarlig_lokation_nedlaeg', arguments: { lokationId: 9, flytIndholdTil: 12 } });
+    await mcp.callTool({ name: 'lager_ansvarlig_lokation_nedlaeg', arguments: { lokationId: 9, flytIndholdTil: 12, bekraeftet: true } });
     await mcp.callTool({ name: 'lager_ansvarlig_lokation_evne_saet', arguments: { lokationId: 12, noegle: 'opladning', parametre: { system: 'X' } } });
     const kald = fetchFn.mock.calls.map((c) => [(c as unknown as Kald)[1].method, (c as unknown as Kald)[0].pathname, JSON.parse(String((c as unknown as Kald)[1].body))]);
     expect(kald).toEqual([

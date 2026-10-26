@@ -57,12 +57,109 @@ describe('OpenAPI-øjebliksbilledet', () => {
     expect(Object.keys(ret.shape)).not.toContain('pin');
     expect(ret.shape.lokationId!.safeParse(undefined).success).toBe(false);
     expect(ret.shape.note!.safeParse(null).success).toBe(true);
-    // Fejlregistrering (omm-lager #207) er lagerets markering uden værktøj, når den står i kortet.
+  });
+
+  it('fejlregistrering er et destruktivt værktøj, der kræver brugerens ja og aldrig krediterer', () => {
+    // Lageret tog x-mcp af (epic #9) og afviser selv krediter: true gennem gatewayen (403).
     const fejl = 'POST /ansvarlig/enheder/{tag}/fejlregistrer' as OpNoegle;
-    if (operation(fejl)) {
-      expect(UDEN_VAERKTOEJ[fejl]).toBeDefined();
-      expect(brugte.has(fejl)).toBe(false);
+    expect(operation(fejl)).toBeDefined();
+    expect(UDEN_VAERKTOEJ[fejl]).toBeUndefined();
+    const b = byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_fejlregistrer')!);
+    expect(b.ops).toEqual([fejl]);
+    expect(b.sletter).toBe(true);
+    expect(b.bekraeftes).toBe(true);
+    expect(b.shape.bekraeftet!.safeParse(undefined).success).toBe(false);
+    expect(b.shape.bekraeftet!.safeParse(false).success).toBe(false);
+    expect(b.shape.bekraeftet!.safeParse(true).success).toBe(true);
+    expect(b.shape.krediter!.safeParse(true).success).toBe(false);
+    expect(b.shape.krediter!.safeParse(undefined).success).toBe(true);
+  });
+
+  it('kassering, fejlregistrering, sletning og annullering kræver bekraeftet og er destruktive', () => {
+    const skal = [
+      'lager_ansvarlig_kasser', 'lager_ansvarlig_fejlregistrer', 'lager_ansvarlig_udtag_annuller', 'lager_ansvarlig_periode_annuller',
+      'lager_ansvarlig_saet_oploes', 'lager_ansvarlig_lokation_nedlaeg', 'lager_ansvarlig_pris_saet', 'lager_ansvarlig_periode_ret',
+      'lager_ansvarlig_udtag_registrer', 'lager_ansvarlig_saet_fjern_del', 'lager_ansvarlig_kanban_tilbagekald', 'lager_ansvarlig_iot_alarmregel_fjern', 'scenario_slet',
+    ];
+    for (const navn of skal) {
+      const b = byg(KATALOG.find((s) => s.navn === navn)!);
+      expect(b.bekraeftes, navn).toBe(true);
+      expect(b.sletter, navn).toBe(true);
+      expect(b.shape.bekraeftet, navn).toBeDefined();
     }
+    // Optællingens afgørelse kræver kun bekræftelsen ved «savnet».
+    const afgoer = byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_optaelling_afgoer')!);
+    expect(afgoer.bekraeftes).toBe(true);
+    expect(afgoer.kraeverBekraeftelse({ afgoerelse: { slags: 'savnet' } })).toBe(true);
+    expect(afgoer.kraeverBekraeftelse({ afgoerelse: { slags: 'ok' } })).toBe(false);
+    expect(afgoer.shape.bekraeftet!.safeParse(undefined).success).toBe(true);
+    // Ingen beskrivelse lover, at en annullering «ikke går i afregningen»: en faktureret krediteres.
+    expect(KATALOG.filter((s) => /går ikke i afregningen/.test(s.beskrivelse)).map((s) => s.navn)).toEqual([]);
+    // Frigivelse er ikke destruktiv; kassering er. Begge er afgørelsen, med handlingen fast.
+    const frigiv = byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_frigiv')!);
+    expect(frigiv.bekraeftes).toBe(false);
+    expect(frigiv.shape.handling).toBeUndefined();
+    expect(byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_kasser')!).shape.handling).toBeUndefined();
+  });
+
+  it('al opsætning har et værktøj: opret, ret og slå fra (med brugerens ja); kameraer kun i appen', () => {
+    const opsaetning: OpNoegle[] = [
+      'POST /ansvarlig/modeller', 'PUT /ansvarlig/modeller/{id}', 'POST /ansvarlig/enheder', 'PUT /ansvarlig/enheder/{tag}',
+      'POST /ansvarlig/forbrugsvarer', 'PUT /ansvarlig/forbrugsvarer/{id}',
+      'POST /ansvarlig/kategoriskabeloner', 'PATCH /ansvarlig/kategoriskabeloner/{id}', 'POST /ansvarlig/enhedsfelter', 'PATCH /ansvarlig/enhedsfelter/{id}',
+      'POST /ansvarlig/forbrugsgrupper', 'PATCH /ansvarlig/forbrugsgrupper/{noegle}', 'POST /ansvarlig/saermaerker', 'PATCH /ansvarlig/saermaerker/{noegle}',
+      'POST /ansvarlig/skabeloner', 'PATCH /ansvarlig/skabeloner/{id}', 'PUT /ansvarlig/skabeloner/fravalg', 'POST /ansvarlig/evnetyper', 'PATCH /ansvarlig/evnetyper/{id}',
+      'POST /ansvarlig/placeringsregler', 'PATCH /ansvarlig/placeringsregler/{id}', 'POST /ansvarlig/procesflows', 'PATCH /ansvarlig/procesflows/{id}',
+      'PUT /ansvarlig/kodeskabelon', 'PUT /ansvarlig/modeller/{id}/krav', 'PUT /ansvarlig/modeller/{id}/maal', 'PUT /ansvarlig/modeller/{id}/pakkeliste',
+      'POST /ansvarlig/vedligehold/typer', 'PUT /ansvarlig/vedligehold/typer/{id}', 'POST /ansvarlig/vedligehold/opgaver', 'PUT /ansvarlig/vedligehold/opgaver/{id}', 'DELETE /ansvarlig/vedligehold/opgaver/{id}',
+      'POST /iot/enheder', 'PUT /iot/enheder/{id}', 'DELETE /iot/enheder/{id}', 'POST /iot/alarmregler', 'PUT /iot/alarmregler/{id}', 'DELETE /iot/alarmregler/{id}',
+      'POST /ansvarlig/lokationer', 'PATCH /ansvarlig/lokationer/{id}', 'POST /ansvarlig/lokationer/{id}/nedlaeg',
+    ];
+    expect(opsaetning.filter((op) => !brugte.has(op))).toEqual([]);
+    // At slå noget fra (aktiv: false) kræver brugerens ja; at rette noget andet gør ikke.
+    for (const navn of ['lager_ansvarlig_kategoriskabelon_ret', 'lager_ansvarlig_enhedsfelter_ret', 'lager_ansvarlig_forbrugsgruppe_ret', 'lager_ansvarlig_saermaerke_ret',
+      'lager_ansvarlig_skabelon_ret', 'lager_ansvarlig_evnetype_ret', 'lager_ansvarlig_placeringsregel_ret', 'lager_ansvarlig_procesflow_ret', 'lager_ansvarlig_ret_model',
+      'lager_ansvarlig_forbrugsvare_ret', 'lager_ansvarlig_vedligehold_type_ret', 'lager_ansvarlig_vedligehold_opgave_ret', 'lager_ansvarlig_iot_enhed_ret', 'lager_ansvarlig_iot_alarmregel_ret']) {
+      const b = byg(KATALOG.find((s) => s.navn === navn)!);
+      expect(b.kraeverBekraeftelse({ aktiv: false }), navn).toBe(true);
+      expect(b.kraeverBekraeftelse({ navn: 'x' }), navn).toBe(false);
+    }
+    for (const navn of ['lager_ansvarlig_iot_enhed_opret', 'lager_ansvarlig_iot_enhed_ret']) {
+      const felter = Object.keys(byg(KATALOG.find((s) => s.navn === navn)!).shape);
+      expect(felter, navn).not.toContain('kameraAdgang');
+      expect(felter, navn).not.toContain('go2rtcStroem');
+    }
+    // Bevidst uden værktøj: adgang, moduler, prispolitik, bogføringens varer og kameraernes billeder.
+    for (const op of ['POST /ansvarlig/adgang', 'PUT /ansvarlig/moduler', 'GET /ansvarlig/politik', 'PUT /ansvarlig/economic/varer', 'GET /iot/kameraer/{id}/billede'] as OpNoegle[]) {
+      expect(brugte.has(op), op).toBe(false);
+      expect(UDEN_VAERKTOEJ[op], op).toBeDefined();
+    }
+  });
+
+  it('en operation, lageret markerer med x-mcp.bekraeftes, har et værktøj, der kræver bekraeftet', () => {
+    const markerede = alleOperationer().filter((op) => (operation(op) as { 'x-mcp'?: { bekraeftes?: boolean } })['x-mcp']?.bekraeftes === true);
+    expect(markerede.length).toBeGreaterThan(0);
+    for (const op of markerede) {
+      const v = KATALOG.filter((s) => byg(s).ops.includes(op));
+      expect(v.length, op).toBeGreaterThan(0);
+      for (const s of v) expect(byg(s).bekraeftes, `${op} → ${s.navn}`).toBe(true);
+    }
+  });
+
+  it('den lageransvarliges værktøjer kendes på navnet eller på /ansvarlig', () => {
+    for (const s of KATALOG) {
+      const b = byg(s);
+      const underAnsvarlig = b.ops.some((op) => splitOp(op).sti.startsWith('/ansvarlig/'));
+      expect(b.ansvarlig, s.navn).toBe(s.ansvarlig ?? (s.navn.startsWith('lager_ansvarlig_') || underAnsvarlig));
+      // Et lager_*-værktøj (uden ansvarlig) bruger aldrig en /ansvarlig-rute, undtagen scenarierne.
+      if (underAnsvarlig && !s.navn.startsWith('lager_ansvarlig_')) expect(s.navn, s.navn).toMatch(/^scenario_/);
+    }
+    expect(byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_model_opret')!).ansvarlig).toBe(true);
+    // Placeringsmotoren kræver lageransvarlig i lageret (/scenarier/{id}/placering, POST); vurderingen (GET) og læsningen gør ikke.
+    expect(byg(KATALOG.find((s) => s.navn === 'scenario_foreslaa_placering')!).ansvarlig).toBe(true);
+    expect(byg(KATALOG.find((s) => s.navn === 'scenario_vurder_placering')!).ansvarlig).toBe(false);
+    expect(KATALOG.filter((s) => s.ansvarlig !== undefined).map((s) => s.navn)).toEqual(['scenario_foreslaa_placering']);
+    expect(byg(KATALOG.find((s) => s.navn === 'lager_tjek_ud')!).ansvarlig).toBe(false);
   });
 
   it('UDEN_VAERKTOEJ_HER gentager ikke lagerets egne markeringer', () => {

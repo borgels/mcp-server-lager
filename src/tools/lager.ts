@@ -8,23 +8,37 @@ import { assertWritesEnabled, READ_TOOL_ANNOTATIONS, WRITE_TOOL_ANNOTATIONS } fr
 import { searchCapabilities } from '../lager/capabilities.js';
 import { modulBesked, slaaetFra, type ModulCache } from '../lager/moduler.js';
 import { idempotensHemmelighed, klientNoegleFra, toolNoegle } from '../lager/idempotens.js';
+import { afvisning, konfigureredeRoller, type Adgang, type Krav } from '../lager/roller.js';
 import { KATALOG, type Input } from './katalog.js';
-import { byg } from './bygger.js';
+import { BEKRAEFTET, byg } from './bygger.js';
 
 export interface RegisterOptions {
   /** Installationens moduler: værktøjer for moduler, der er slået fra, skjules og afvises. */
   moduler?: ModulCache;
+  /**
+   * Personens adgang: gatewayens roller (lager-laes/lager-skriv) og lagerets roller fra /me.
+   * Værktøjer, personen ikke må bruge, skjules og afvises (src/lager/roller.ts). Uden: de
+   * konfigurerede roller (LAGER_ROLLER, standard lager-skriv), og lagerets roller ukendte.
+   */
+  adgang?: Adgang;
 }
 
 export function registerLagerTools(server: McpServer, client: LagerClient, options: RegisterOptions = {}): void {
   const { moduler } = options;
+  const adgang: Adgang = options.adgang ?? { roller: konfigureredeRoller(), lager: null };
   // Uden en transport-session: én tilfældig værdi pr. server-instans (pr. stdio-proces, pr. HTTP-kald).
   const instans = randomUUID();
   // Tekst (fx YAML) som den er, en tom krop som ''; alt andet som JSON.
   const json = (data: unknown): CallToolResult => ({ content: [{ type: 'text', text: data === undefined ? '' : typeof data === 'string' ? data : JSON.stringify(data, null, 2) }] });
   const fejl = (text: string): CallToolResult => ({ content: [{ type: 'text', text }], isError: true });
 
-  const run = async (tool: string, input: unknown, fn: () => Promise<unknown>, write: boolean, kraevet: string[]): Promise<CallToolResult> => {
+  const run = async (tool: string, input: unknown, fn: () => Promise<unknown>, write: boolean, kraevet: string[], krav?: Krav): Promise<CallToolResult> => {
+    // Rollerne først: et skjult værktøj, der alligevel kaldes, afvises, før lageret spørges.
+    const nej = krav ? afvisning(krav, adgang) : null;
+    if (nej) {
+      await writeAuditEvent({ user: client.user, tool, action: 'policy_denied', reason: nej });
+      return fejl(nej);
+    }
     if (moduler && kraevet.length) {
       const fra = slaaetFra(kraevet, await moduler.hent(client));
       if (fra.length) return fejl(modulBesked(tool, fra));
@@ -45,23 +59,28 @@ export function registerLagerTools(server: McpServer, client: LagerClient, optio
     } catch (e) {
       const msg = e instanceof LagerApiError ? `${e.message} (HTTP ${e.status})` : e instanceof Error ? e.message : String(e);
       await writeAuditEvent({ user: client.user, tool, action: 'error', error: msg });
-      return fejl(msg);
+      // Lagerets detaljer (fx afregning og afregnetTil ved et afregnet vindue, faktureretTil, konflikter) med i
+      // svaret, så modellen kan vise brugeren, hvad der står i vejen, og hvad hun kan vælge.
+      return fejl(e instanceof LagerApiError && e.detaljer ? `${msg}\n${JSON.stringify(e.detaljer, null, 2)}` : msg);
     }
   };
 
   server.registerTool(
     'lager_search_capabilities',
     { title: "Søg i lager-MCP'ens værktøjer", description: 'Find det rigtige værktøj før første kald.', inputSchema: { query: z.string().trim().default(''), limit: z.number().int().min(1).max(50).default(20) }, annotations: READ_TOOL_ANNOTATIONS },
-    async (input) => run('lager_search_capabilities', input, async () => searchCapabilities(String(input.query ?? ''), Number(input.limit ?? 20), moduler?.senest() ?? null), false, []),
+    async (input) => run('lager_search_capabilities', input, async () => searchCapabilities(String(input.query ?? ''), Number(input.limit ?? 20), moduler?.senest() ?? null, adgang), false, []),
   );
 
-  const registrerede: { tool: RegisteredTool; moduler: string[] }[] = [];
+  const registrerede: { tool: RegisteredTool; moduler: string[]; krav: Krav }[] = [];
   for (const spec of KATALOG) {
     const b = byg(spec);
+    const krav: Krav = { navn: spec.navn, skriv: b.skriv, ansvarlig: b.ansvarlig };
     const annotations = !b.skriv ? { ...READ_TOOL_ANNOTATIONS, openWorldHint: b.aabenVerden } : { ...WRITE_TOOL_ANNOTATIONS, destructiveHint: b.sletter, idempotentHint: b.idempotent, openWorldHint: b.aabenVerden };
     const tool = server.registerTool(spec.navn, { title: spec.titel, description: spec.beskrivelse, inputSchema: b.shape, annotations }, async (input, extra) =>
       run(spec.navn, input, async () => {
         const i = input as Input;
+        // Skemaet kræver det allerede (z.literal(true)); her også, så intet destruktivt sendes uden.
+        if (b.kraeverBekraeftelse(i) && i[BEKRAEFTET] !== true) throw new Error(`${spec.navn} kræver ${BEKRAEFTET}: true, brugerens udtrykkelige ja.`);
         // Én frist for nye forsøg pr. tool-kald, og for en skrivning én Idempotency-Key,
         // den samme ved hvert nyt forsøg (#113).
         const kald = client.forKald(b.skriv
@@ -73,12 +92,13 @@ export function registerLagerTools(server: McpServer, client: LagerClient, optio
         const send = b.send(kald);
         const data = spec.kald ? await spec.kald(send, i, kald) : await send(b.vaelg(i), i);
         return spec.efter ? spec.efter(data, i) : data;
-      }, b.skriv, b.moduler),
+      }, b.skriv, b.moduler, krav),
     );
-    registrerede.push({ tool, moduler: b.moduler });
+    registrerede.push({ tool, moduler: b.moduler, krav });
   }
 
-  // Kendes modulerne allerede, skjules værktøjerne for dem, der er slået fra.
+  // Kendes modulerne allerede, skjules værktøjerne for dem, der er slået fra; og værktøjerne,
+  // personens roller ikke giver (gatewayens læs/skriv, lagerets lageransvarlig og kiosk).
   const kendte = moduler?.senest() ?? null;
-  for (const r of registrerede) if (slaaetFra(r.moduler, kendte).length) r.tool.disable();
+  for (const r of registrerede) if (slaaetFra(r.moduler, kendte).length || afvisning(r.krav, adgang)) r.tool.disable();
 }
