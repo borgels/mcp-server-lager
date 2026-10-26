@@ -59,7 +59,9 @@ export function registerLagerTools(server: McpServer, client: LagerClient, optio
     } catch (e) {
       const msg = e instanceof LagerApiError ? `${e.message} (HTTP ${e.status})` : e instanceof Error ? e.message : String(e);
       await writeAuditEvent({ user: client.user, tool, action: 'error', error: msg });
-      return fejl(msg);
+      // Lagerets detaljer (fx afregning og afregnetTil ved et afregnet vindue, faktureretTil, konflikter) med i
+      // svaret, så modellen kan vise brugeren, hvad der står i vejen, og hvad hun kan vælge.
+      return fejl(e instanceof LagerApiError && e.detaljer ? `${msg}\n${JSON.stringify(e.detaljer, null, 2)}` : msg);
     }
   };
 

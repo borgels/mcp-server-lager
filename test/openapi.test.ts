@@ -136,6 +136,16 @@ describe('OpenAPI-øjebliksbilledet', () => {
     }
   });
 
+  it('en operation, lageret markerer med x-mcp.bekraeftes, har et værktøj, der kræver bekraeftet', () => {
+    const markerede = alleOperationer().filter((op) => (operation(op) as { 'x-mcp'?: { bekraeftes?: boolean } })['x-mcp']?.bekraeftes === true);
+    expect(markerede.length).toBeGreaterThan(0);
+    for (const op of markerede) {
+      const v = KATALOG.filter((s) => byg(s).ops.includes(op));
+      expect(v.length, op).toBeGreaterThan(0);
+      for (const s of v) expect(byg(s).bekraeftes, `${op} → ${s.navn}`).toBe(true);
+    }
+  });
+
   it('den lageransvarliges værktøjer kendes på navnet eller på /ansvarlig', () => {
     for (const s of KATALOG) {
       const b = byg(s);

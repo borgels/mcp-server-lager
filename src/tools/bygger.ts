@@ -141,6 +141,12 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
   const planer = new Map<OpNoegle, Plan>([[spec.op, hoved.plan]]);
   if (alt && spec.medId) planer.set(spec.medId.op, alt.plan);
   for (const op of spec.ops ?? []) if (!planer.has(op)) planer.set(op, planFor(spec, op, doc, fundne).plan);
+  // Hver {parameter} i stien skal være en sti-parameter i kortet; ellers gik kaldet til «…/%7Bid%7D/…».
+  for (const [op, plan] of planer) {
+    const har = new Set(Object.values(plan.felter).filter((f) => f.hvor === 'path').map((f) => f.api));
+    const mangler = [...splitOp(op).sti.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]!).filter((n) => !har.has(n));
+    if (mangler.length) throw new Error(`${spec.navn}: ${op} mangler sti-parameteren ${mangler.join(', ')} i kortet`);
+  }
   // Som begraens: en sti, der ikke rammer noget felt i nogen af operationerne, er en fejl i kataloget.
   const forgaeves = [...(spec.skjul ?? []), ...Object.keys(spec.forbyd ?? {})].filter((sti) => !fundne.has(sti));
   if (forgaeves.length) throw new Error(`${spec.navn}: skjul/forbyd ${forgaeves.join(', ')} findes ikke`);

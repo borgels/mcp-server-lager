@@ -307,4 +307,35 @@ describe('den lageransvarliges nye skrivninger', () => {
     expect((await mcp.callTool({ name: 'lager_ansvarlig_iot_enhed_opret', arguments: { lokationId: 3, haEntityId: 'sensor.skur', slags: 'sensor' } })).isError).toBeFalsy();
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
+
+  it('projekter: flyt og tilføj kræver brugerens ja; et afregnet vindue (409) vises med afregning og dato', async () => {
+    const fetchFn = vi.fn(async () => svar(409, { error: 'Dagene fra 2026-10-01 falder i afregning OMM-2026-10, der er bogført', afregning: { id: 7, nummer: 'OMM-2026-10', status: 'bogfoert' }, afregnetTil: '2026-10-31' }));
+    const mcp = await forbind(fetchFn as unknown as typeof fetch, ansvarlig);
+    const krop = { projektId: 2620, tilProjektId: 2659, fra: '2026-10-15', tags: ['T-00012'], begrundelse: 'Gik videre' };
+    expect((await mcp.callTool({ name: 'lager_ansvarlig_projekt_flyt', arguments: krop })).isError).toBe(true);
+    expect(fetchFn).not.toHaveBeenCalled();
+    const r = await mcp.callTool({ name: 'lager_ansvarlig_projekt_flyt', arguments: { ...krop, bekraeftet: true } });
+    expect(r.isError).toBe(true);
+    expect(tekst(r)).toContain('der er bogført (HTTP 409)');
+    expect(tekst(r)).toContain('"nummer": "OMM-2026-10"');
+    expect(tekst(r)).toContain('"afregnetTil": "2026-10-31"');
+    const [url, init] = fetchFn.mock.calls[0] as unknown as Kald;
+    expect([init.method, url.pathname]).toEqual(['POST', '/api/lager/ansvarlig/projekter/2620/flyt']);
+    expect(JSON.parse(String(init.body))).toEqual({ tilProjektId: 2659, fra: '2026-10-15', tags: ['T-00012'], begrundelse: 'Gik videre' });
+    expect((await mcp.callTool({ name: 'lager_ansvarlig_projekt_tilfoej', arguments: { projektId: 2620, tags: ['T-00012'], fra: '2026-10-01', begrundelse: 'x' } })).isError).toBe(true);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('kreditering kan ikke sendes: krediter og krediteretManuelt afvises på perioderne og fejlregistreringen', async () => {
+    const fetchFn = vi.fn(async () => svar(200, {}));
+    const mcp = await forbind(fetchFn as unknown as typeof fetch, ansvarlig);
+    const kald = [
+      ['lager_ansvarlig_periode_annuller', { periodeId: 5, begrundelse: 'x', krediter: true, bekraeftet: true }],
+      ['lager_ansvarlig_periode_annuller', { periodeId: 5, begrundelse: 'x', krediteretManuelt: true, bekraeftet: true }],
+      ['lager_ansvarlig_periode_ret', { periodeId: 5, begrundelse: 'x', til: '2026-10-01', krediteretManuelt: true, bekraeftet: true }],
+      ['lager_ansvarlig_fejlregistrer', { tag: 'T-1', begrundelse: 'x', krediteretManuelt: true, bekraeftet: true }],
+    ] as const;
+    for (const [name, args] of kald) expect((await mcp.callTool({ name, arguments: args })).isError, name).toBe(true);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
 });

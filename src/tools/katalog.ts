@@ -131,6 +131,11 @@ const ikkeKamera = (op: OpNoegle) => async (send: Sender, i: Input) => {
 
 /** At slå et opsætningsobjekt fra (aktiv: false) kræver brugerens ja; det kan slås til igen. */
 const deaktiverer = (i: Input): boolean => i.aktiv === false;
+/** Kreditering af bogført leje er bogføring: kun i appen, og lageret afviser den gennem gatewayen (403). */
+const KREDITER_I_APPEN = 'At kreditere faktureret leje er bogføring og sker i lager-appen, ikke gennem MCP.';
+const KREDITER_MANUELT_I_APPEN = 'At kreditere manuelt (i e-conomic) er bogføring og sker i lager-appen, ikke gennem MCP.';
+/** #227's værn: nye lejedage må ikke falde i et vindue, der er bogført, afventer godkendelse eller er uafklaret. */
+const AFREGNET_VINDUE = ' Svarer lageret 409 med afregning og afregnetTil, falder dagene i en afregning, der er bogført, afventer godkendelse eller er uafklaret: vis afregningens nummer og datoen, og foreslå en fra-dato efter afregnetTil (eller at afregningen afvises eller genberegnes i appen); prøv ikke igen med de samme datoer.';
 const DEAKTIVER_TEKST = ' aktiv: false slår det fra (det kan slås til igen) og kræver bekraeftet: true efter brugerens udtrykkelige ja.';
 
 export const FAELLES_ALIAS: Record<string, string> = { lager: 'lagerId', projekt: 'projektId', model: 'modelId', lokation: 'lokationId' };
@@ -197,6 +202,10 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_projekter', titel: 'Projekter', op: 'GET /projekter',
     beskrivelse: 'Projekter, du kan afhente til og booke på, med sagsnummer og hvad du har ude.',
     kort: 'Projekter, du kan afhente til og booke på.', eksempler: ['hvilke sager kan jeg tage værktøj ud til'] },
+  { navn: 'lager_scan_forslag', titel: 'Forslag til enheder og modeller', op: 'GET /scan/forslag', alias: { graense: 'antal' },
+    beskrivelse: 'Scannerens forslag i et flow (afhent, aflever eller overtag): enheder og modeller, der passer på søgningen q (mindst 2 tegn), eller en valgt models enheder (modelId) med den, «Tag en ledig» ville vælge. Med projektId ved afhentning: en booking til projektet tæller ikke som optaget. Bruges, når brugeren ikke har et mærke, men et navn.',
+    kort: 'Find enheder og modeller ud fra et navn, fx før tjek ud eller aflevering.', eksempler: ['jeg skal bruge en borehammer, hvilken er ledig?', 'hvilke af mine kan jeg aflevere med «makita»?'],
+    beskriv: { antal: 'Højst så mange enheder (1–30, standard 12).' } },
   { navn: 'lager_mine', titel: 'Mine værktøjer', op: 'GET /mine',
     beskrivelse: 'Det, du har ude, pr. projekt, med dagsleje.',
     kort: 'Værktøj, du har ude, pr. projekt, med dagsleje.', eksempler: ['hvad har jeg ude lige nu'] },
@@ -628,7 +637,7 @@ export const KATALOG: ToolSpec[] = [
     kort: 'Lageransvarlig: kassér en enhed (kan ikke fortrydes; kræver brugerens ja).', eksempler: ['kassér T-00031, den er ødelagt'],
     beskriv: { note: 'Grunden til kassationen, fx «motor brændt af».' } },
   { navn: 'lager_ansvarlig_fejlregistrer', titel: 'Lageransvarlig: fejlregistrér enhed', op: 'POST /ansvarlig/enheder/{tag}/fejlregistrer', bekraeftes: true,
-    forbyd: { krediter: 'At kreditere faktureret leje er bogføring og sker i lager-appen, ikke gennem MCP.' },
+    forbyd: { krediter: KREDITER_I_APPEN, krediteretManuelt: KREDITER_MANUELT_I_APPEN },
     beskriv: {
       perioder: 'Kun når lageret svarer 409 med aktivePerioder: annuller, eller flyt (med flytTil). Vis perioderne, og lad brugeren vælge.',
       flytTil: 'Enheden, perioderne flyttes til (samme lager), med perioder: flyt.',
@@ -656,16 +665,30 @@ export const KATALOG: ToolSpec[] = [
     kort: 'Lageransvarlig: annullér et udtag af en forbrugsvare (kræver brugerens ja).', eksempler: ['udtaget af 5 filtre var en fejl, annullér det'],
     beskriv: { udtagId: 'Udtagets id (se lager_ansvarlig_udtag).' } },
   { navn: 'lager_ansvarlig_periode_opret', titel: 'Lageransvarlig: ny lejeperiode', op: 'POST /ansvarlig/perioder',
-    beskrivelse: 'Tast en lejeperiode for en enhed på et projekt (fra, evt. til): historik eller en udlevering, der ikke blev scannet. Perioden går direkte i afregningen, så tjek først lager_ansvarlig_perioder for enheden, og skriv en begrundelse.',
+    beskrivelse: 'Tast en lejeperiode for en enhed på et projekt (fra, evt. til): historik eller en udlevering, der ikke blev scannet. Perioden går direkte i afregningen, så tjek først lager_ansvarlig_perioder for enheden, og skriv en begrundelse. Flere enheder på ét projekt: lager_ansvarlig_projekt_tilfoej.' + AFREGNET_VINDUE,
     kort: 'Lageransvarlig: tast en lejeperiode for en enhed på et projekt.', eksempler: ['T-00012 var på sag 2620 fra 1. til 10. september, det blev ikke scannet'] },
   { navn: 'lager_ansvarlig_periode_ret', titel: 'Lageransvarlig: ret lejeperiode', op: 'PUT /ansvarlig/perioder/{id}', alias: { id: 'periodeId' }, bekraeftes: true,
-    beskrivelse: 'Ret en lejeperiodes fra, til, projekt eller person med en begrundelse (id fra lager_ansvarlig_perioder). Et andet projekt flytter lejen til en anden kunde. En afregnet periode kan ikke rettes (409); den annulleres i appen. En ændring går i den næste afregning. Vis før og efter, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
+    forbyd: { krediteretManuelt: KREDITER_MANUELT_I_APPEN },
+    beskrivelse: 'Ret en lejeperiodes fra, til, projekt eller person med en begrundelse (id fra lager_ansvarlig_perioder). Et andet projekt flytter lejen til en anden kunde. Bogførte dage røres ikke: på en afregnet periode kan projektet og starten ikke rettes, og slutningen tidligst være det bogførte (409 med faktureretTil); flyt resten med lager_ansvarlig_projekt_flyt.' + AFREGNET_VINDUE + ' Vis før og efter, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
     kort: 'Lageransvarlig: ret en lejeperiode (datoer, projekt, person).', eksempler: ['perioden for T-00012 sluttede den 8., ikke den 10.'],
     beskriv: { periodeId: 'Periodens id (se lager_ansvarlig_perioder).' } },
   { navn: 'lager_ansvarlig_periode_annuller', titel: 'Lageransvarlig: annullér lejeperiode', op: 'DELETE /ansvarlig/perioder/{id}', alias: { id: 'periodeId' }, bekraeftes: true,
-    beskrivelse: 'Annullér en lejeperiode med en begrundelse (id fra lager_ansvarlig_perioder); en periode, der ikke er faktureret, kommer ikke med i næste afregning. Er den faktureret (på en bogført afregning), ville annulleringen kreditere det: lageret afviser det gennem MCP (403), og det sker i appen. Vis perioden, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
+    forbyd: { krediter: KREDITER_I_APPEN, krediteretManuelt: KREDITER_MANUELT_I_APPEN },
+    beskrivelse: 'Annullér en lejeperiode med en begrundelse (id fra lager_ansvarlig_perioder); en periode, der ikke er faktureret, kommer ikke med i næste afregning. Er den faktureret (409 med faktureretTil), ville annulleringen kreditere det bogførte: det sker kun i appen. Vis perioden, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
     kort: 'Lageransvarlig: annullér en lejeperiode (kræver brugerens ja).', eksempler: ['perioden for T-00012 på sag 2659 er forkert, annullér den'],
     beskriv: { periodeId: 'Periodens id (se lager_ansvarlig_perioder).' } },
+  { navn: 'lager_ansvarlig_projekter', titel: 'Lageransvarlig: projekter', op: 'GET /ansvarlig/projekter',
+    beskrivelse: 'Projekterne under lagerets konto med enheder ude nu (udeNu) og lejedage i indeværende måned; filter i_gang (standard), uden, afsluttede eller alle, og søgning (q) i navn, sagsnummer og kode.',
+    kort: 'Lageransvarlig: projekterne med udstyr ude og lejedage.', eksempler: ['hvilke projekter har udstyr ude?', 'find sag 2620'] },
+  { navn: 'lager_ansvarlig_projekt', titel: 'Lageransvarlig: ét projekt', op: 'GET /ansvarlig/projekter/{id}', alias: { id: 'projektId' },
+    beskrivelse: 'Ét projekt: dets lejeperioder på lageret (fra, til, kilde, faktureretTil = sidste bogførte dag, udenForProjekt), standarddatoerne til nye perioder og historikken (hvem, hvornår, før og efter, begrundelse).',
+    kort: 'Lageransvarlig: et projekts lejeperioder, standarddatoer og historik.', eksempler: ['hvad står på sag 2620, og hvornår?'] },
+  { navn: 'lager_ansvarlig_projekt_tilfoej', titel: 'Lageransvarlig: tilføj enheder til projekt', op: 'POST /ansvarlig/projekter/{id}/perioder', alias: { id: 'projektId' }, bekraeftes: true,
+    beskrivelse: 'Tilføj enheder (tags) til projektet: én tastet periode pr. enhed med en fælles begrundelse, alle eller ingen. Brug projektets standard fra og til (lager_ansvarlig_projekt); ingen dato i fremtiden, og uden til er perioden åben. Overlap med en scannet periode giver 409 med konflikter: vis dem, og lad brugeren vælge vedOverlap (scannet eller tastet). Perioder uden for projektets datoer giver advarsler.' + AFREGNET_VINDUE + ' Lejen faktureres: vis enheder, datoer og begrundelse, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
+    kort: 'Lageransvarlig: læg enheder på et projekt fra en dato (kræver brugerens ja).', eksempler: ['T-00012 og T-00013 har været på sag 2620 siden 1. oktober'] },
+  { navn: 'lager_ansvarlig_projekt_flyt', titel: 'Lageransvarlig: flyt til andet projekt', op: 'POST /ansvarlig/projekter/{id}/flyt', alias: { id: 'projektId' }, bekraeftes: true,
+    beskrivelse: 'Flyt perioder (perioder: id\'er) eller enheder (tags) fra projektet til et andet (tilProjektId) fra en dato: den gamle periode lukkes dagen før, og en ny åbnes på målet. Bogførte dage røres aldrig: fra skal ligge efter det bogførte (409 med faktureretTil).' + AFREGNET_VINDUE + ' Lejen faktureres en anden køber fra datoen: vis perioderne, målprojektet og datoen, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
+    kort: 'Lageransvarlig: flyt enheder til et andet projekt fra en dato (kræver brugerens ja).', eksempler: ['T-00012 gik videre fra sag 2620 til 2659 den 15.'] },
   { navn: 'lager_ansvarlig_saet_oploes', titel: 'Lageransvarlig: opløs sæt', op: 'POST /ansvarlig/saet/{tag}/oploes', bekraeftes: true,
     beskrivelse: 'Opløs sættet: alle dele bliver almindelige enheder, og kassen består. Kan ikke fortrydes (delene skal lægges i igen én ad gangen). Vis indholdet (lager_saet), og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
     kort: 'Lageransvarlig: opløs et sæt i almindelige enheder (kræver brugerens ja).', eksempler: ['opløs sættet T-00100'] },
