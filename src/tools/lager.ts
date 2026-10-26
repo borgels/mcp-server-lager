@@ -78,7 +78,7 @@ export function registerLagerTools(server: McpServer, client: LagerClient, optio
       run(spec.navn, input, async () => {
         const i = input as Input;
         // Skemaet kræver det allerede (z.literal(true)); her også, så intet destruktivt sendes uden.
-        if (b.bekraeftes && i[BEKRAEFTET] !== true) throw new Error(`${spec.navn} kræver ${BEKRAEFTET}: true, brugerens udtrykkelige ja.`);
+        if (b.kraeverBekraeftelse(i) && i[BEKRAEFTET] !== true) throw new Error(`${spec.navn} kræver ${BEKRAEFTET}: true, brugerens udtrykkelige ja.`);
         // Én frist for nye forsøg pr. tool-kald, og for en skrivning én Idempotency-Key,
         // den samme ved hvert nyt forsøg (#113).
         const kald = client.forKald(b.skriv

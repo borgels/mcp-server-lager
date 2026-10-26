@@ -78,7 +78,8 @@ describe('OpenAPI-øjebliksbilledet', () => {
   it('kassering, fejlregistrering, sletning og annullering kræver bekraeftet og er destruktive', () => {
     const skal = [
       'lager_ansvarlig_kasser', 'lager_ansvarlig_fejlregistrer', 'lager_ansvarlig_udtag_annuller', 'lager_ansvarlig_periode_annuller',
-      'lager_ansvarlig_saet_oploes', 'lager_ansvarlig_lokation_nedlaeg', 'lager_ansvarlig_kanban_tilbagekald', 'lager_ansvarlig_iot_alarmregel_fjern', 'scenario_slet',
+      'lager_ansvarlig_saet_oploes', 'lager_ansvarlig_lokation_nedlaeg', 'lager_ansvarlig_pris_saet', 'lager_ansvarlig_periode_ret',
+      'lager_ansvarlig_udtag_registrer', 'lager_ansvarlig_saet_fjern_del', 'lager_ansvarlig_kanban_tilbagekald', 'lager_ansvarlig_iot_alarmregel_fjern', 'scenario_slet',
     ];
     for (const navn of skal) {
       const b = byg(KATALOG.find((s) => s.navn === navn)!);
@@ -86,6 +87,14 @@ describe('OpenAPI-øjebliksbilledet', () => {
       expect(b.sletter, navn).toBe(true);
       expect(b.shape.bekraeftet, navn).toBeDefined();
     }
+    // Optællingens afgørelse kræver kun bekræftelsen ved «savnet».
+    const afgoer = byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_optaelling_afgoer')!);
+    expect(afgoer.bekraeftes).toBe(true);
+    expect(afgoer.kraeverBekraeftelse({ afgoerelse: { slags: 'savnet' } })).toBe(true);
+    expect(afgoer.kraeverBekraeftelse({ afgoerelse: { slags: 'ok' } })).toBe(false);
+    expect(afgoer.shape.bekraeftet!.safeParse(undefined).success).toBe(true);
+    // Ingen beskrivelse lover, at en annullering «ikke går i afregningen»: en faktureret krediteres.
+    expect(KATALOG.filter((s) => /går ikke i afregningen/.test(s.beskrivelse)).map((s) => s.navn)).toEqual([]);
     // Frigivelse er ikke destruktiv; kassering er. Begge er afgørelsen, med handlingen fast.
     const frigiv = byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_frigiv')!);
     expect(frigiv.bekraeftes).toBe(false);

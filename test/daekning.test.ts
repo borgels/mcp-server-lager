@@ -100,10 +100,10 @@ describe('nye værktøjer', () => {
   it('sætdele: tag ud er DELETE med begge mærker i stien', async () => {
     const fetchFn = vi.fn(async () => svar(200, {}));
     const mcp = await forbind(fetchFn as unknown as typeof fetch);
-    await mcp.callTool({ name: 'lager_ansvarlig_saet_fjern_del', arguments: { tag: 'T-00031', del: 'T-00040' } });
+    await mcp.callTool({ name: 'lager_ansvarlig_saet_fjern_del', arguments: { tag: 'T-00031', del: 'T-00040', bekraeftet: true } });
     const [url, init] = fetchFn.mock.calls[0] as unknown as Kald;
     expect([init.method, url.pathname, init.body]).toEqual(['DELETE', '/api/lager/ansvarlig/saet/T-00031/dele/T-00040', undefined]);
-    const r = await mcp.callTool({ name: 'lager_ansvarlig_saet_fjern_del', arguments: { tag: 'T-00031', del: '..' } });
+    const r = await mcp.callTool({ name: 'lager_ansvarlig_saet_fjern_del', arguments: { tag: 'T-00031', del: '..', bekraeftet: true } });
     expect(r.isError).toBe(true);
   });
 
@@ -115,7 +115,11 @@ describe('nye værktøjer', () => {
       expect(r.isError, slags).toBe(true);
     }
     expect(fetchFn).not.toHaveBeenCalled();
-    const ok = await mcp.callTool({ name: 'lager_ansvarlig_optaelling_afgoer', arguments: { optaellingId: 3, linjeId: 5, afgoerelse: { slags: 'savnet' } } });
+    // «savnet» kræver brugerens ja; de andre afgørelser gør ikke.
+    const udenJa = await mcp.callTool({ name: 'lager_ansvarlig_optaelling_afgoer', arguments: { optaellingId: 3, linjeId: 5, afgoerelse: { slags: 'savnet' } } });
+    expect(udenJa.isError).toBe(true);
+    expect(fetchFn).not.toHaveBeenCalled();
+    const ok = await mcp.callTool({ name: 'lager_ansvarlig_optaelling_afgoer', arguments: { optaellingId: 3, linjeId: 5, afgoerelse: { slags: 'savnet' }, bekraeftet: true } });
     expect(ok.isError).toBeFalsy();
     expect(JSON.parse(String((fetchFn.mock.calls[0] as unknown as Kald)[1].body))).toEqual({ linjeId: 5, afgoerelse: { slags: 'savnet' } });
     const { tools } = await mcp.listTools();

@@ -1975,7 +1975,7 @@
     },
     "/ansvarlig/forbrug/{id}": {
       "delete": {
-        "summary": "Annullér et udtag",
+        "summary": "Annullér et udtag: varen lægges tilbage i beholdningen. Er udtaget faktureret (linjer på en bogført afregning), krediteres det på næste afregning; gennem MCP-gatewayen afvises det (403), for kreditering sker i appen",
         "parameters": [
           {
             "name": "id",
@@ -2007,6 +2007,12 @@
         "responses": {
           "200": {
             "description": "{ ok: true }"
+          },
+          "403": {
+            "description": "Gennem MCP-gatewayen: udtaget er faktureret på en bogført afregning"
+          },
+          "409": {
+            "description": "Allerede annulleret"
           }
         }
       }
@@ -2164,7 +2170,7 @@
         }
       },
       "post": {
-        "summary": "Ny forbrugsvare med første pris; med kategoriskabelon (#57) også egenskaberne. Går varenummeret igen i selskabet, rettes den vare i stedet. Står en stregkode allerede på en vare i selskabet, er det 409 med { vare: { id, navn, aktiv }, stregkode }, og intet ændres (heller ikke en vare, der er slået fra); peger varenummer og stregkode på to forskellige varer, er det også 409. Med Idempotency-Key giver et genforsøg samme vare, ikke en ny",
+        "summary": "Ny forbrugsvare med første pris; med kategoriskabelon (#57) også egenskaberne. Går varenummeret igen i selskabet, rettes den vare i stedet. Står en stregkode allerede på en vare i selskabet, er det 409 med { vare: { id, navn, aktiv }, stregkode }, og intet ændres (heller ikke en vare, der er slået fra); peger varenummer og stregkode på to forskellige varer, er det også 409. Med Idempotency-Key giver et genforsøg samme vare, ikke en ny. Gennem MCP-gatewayen: går varenummeret igen, og er der en pris med, er det 409 (prisen sættes med POST /ansvarlig/priser)",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -4736,7 +4742,7 @@
         }
       },
       "post": {
-        "summary": "Ny model med første prisversion; med kategoriskabelon (#57) også egenskaberne, og kategori kan udelades (bliver skabelonens navn). Med Idempotency-Key (valgfri, #51) giver et genforsøg den samme model, ikke en ny",
+        "summary": "Ny model med første prisversion; med kategoriskabelon (#57) også egenskaberne, og kategori kan udelades (bliver skabelonens navn). Med Idempotency-Key (valgfri, #51) giver et genforsøg den samme model, ikke en ny. Gennem MCP-gatewayen: går varenummeret igen, og er der en pris med, er det 409 (prisen sættes med POST /ansvarlig/priser), så en kendt models pris aldrig overskrives af en oprettelse",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -6275,7 +6281,7 @@
         }
       },
       "delete": {
-        "summary": "Annullér en lejeperiode",
+        "summary": "Annullér en lejeperiode. Er den faktureret (lejelinjer på en bogført afregning), krediteres det fakturerede på næste afregning; gennem MCP-gatewayen afvises det (403), for kreditering sker i appen",
         "parameters": [
           {
             "name": "id",
@@ -6306,7 +6312,13 @@
         },
         "responses": {
           "200": {
-            "description": "{ ok: true }"
+            "description": "{ periode }"
+          },
+          "403": {
+            "description": "Gennem MCP-gatewayen: perioden er faktureret på en bogført afregning"
+          },
+          "409": {
+            "description": "Allerede annulleret, eller en faktureret periode på en fejlregistreret enhed"
           }
         }
       }
@@ -6909,7 +6921,7 @@
         }
       },
       "post": {
-        "summary": "Sæt en pris med gyldighed på en model, en enhed (tag) eller en forbrugsvare: en ny prisversion fra gyldigFra (den gamle bliver stående i historikken). Leje fra gyldigFra og frem regnes med den nye dagssats, når afregningen beregnes; det bogførte røres ikke. Med Idempotency-Key giver et genforsøg samme svar og ingen ekstra version",
+        "summary": "Sæt en pris med gyldighed på en model, en enhed (tag) eller en forbrugsvare: en ny prisversion fra gyldigFra (de tidligere versioner bliver stående i historikken). Findes der allerede en version med samme gyldigFra, overskrives den (upsert). Leje fra gyldigFra og frem regnes med den nye dagssats, når afregningen beregnes; det bogførte røres ikke. Med Idempotency-Key giver et genforsøg samme svar og ingen ekstra version",
         "parameters": [
           {
             "name": "Idempotency-Key",

@@ -32,8 +32,10 @@ export type Bygget = {
    * under /ansvarlig/ (fx scenario_*). Skjules for en værktøjsbruger (src/lager/roller.ts).
    */
   ansvarlig: boolean;
-  /** Kaldet kræver bekraeftet: true, brugerens udtrykkelige ja (ToolSpec.bekraeftes). */
+  /** Værktøjet kan kræve bekraeftet: true, brugerens udtrykkelige ja (ToolSpec.bekraeftes). */
   bekraeftes: boolean;
+  /** Kræver netop dette kald bekraeftet? */
+  kraeverBekraeftelse: (input: Input) => boolean;
   ops: OpNoegle[];
   send: (client: LagerClient) => Sender;
   vaelg: (input: Input) => OpNoegle;
@@ -155,7 +157,8 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
   Object.assign(shape, spec.ekstra ?? {});
   if (spec.bekraeftes) {
     if (shape[BEKRAEFTET]) throw new Error(`${spec.navn}: ${BEKRAEFTET} findes allerede i skemaet`);
-    shape[BEKRAEFTET] = z.literal(true, { error: `${spec.navn} kræver ${BEKRAEFTET}: true, brugerens udtrykkelige ja.` }).describe(BEKRAEFTET_TEKST);
+    const felt = z.literal(true, { error: `${spec.navn} kræver ${BEKRAEFTET}: true, brugerens udtrykkelige ja.` });
+    shape[BEKRAEFTET] = typeof spec.bekraeftes === 'function' ? felt.optional().describe(`${BEKRAEFTET_TEKST} Kræves kun i de tilfælde, beskrivelsen nævner.`) : felt.describe(BEKRAEFTET_TEKST);
   }
 
   const ops = [...planer.keys()];
@@ -198,6 +201,7 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
     moduler: [...new Set(ops.flatMap((op) => modulerFor(op, doc)))].sort(),
     ansvarlig: spec.navn.startsWith('lager_ansvarlig_') || ops.some((op) => splitOp(op).sti.startsWith('/ansvarlig/')),
     bekraeftes: !!spec.bekraeftes,
+    kraeverBekraeftelse: (input) => (typeof spec.bekraeftes === 'function' ? spec.bekraeftes(input) : !!spec.bekraeftes),
     ops,
     send,
     vaelg,

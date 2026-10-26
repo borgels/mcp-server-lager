@@ -63,12 +63,24 @@ export type Lagerroller = {
   medarbejder: boolean;
   /** Kun kiosk: en delt skærm, ikke en medarbejder. */
   kunKiosk: boolean;
+  /**
+   * /me kunne ikke slås op (fejl, ingen lagre, eller de sidst kendte roller er ældre end
+   * LAGER_ROLLER_MAKS_ALDER_MS): fail-closed. Brugerens egne værktøjer vises (lageret afgør),
+   * men den lageransvarliges skjules og afvises, til /me svarer igen.
+   */
+  ukendt?: boolean;
 };
+
+/** Rollerne, når /me ikke kan slås op: ingen lageransvarlig-værktøjer (fail-closed). */
+export const UKENDTE_LAGERROLLER: Lagerroller = Object.freeze({ ansvarlig: false, medarbejder: true, kunKiosk: false, ukendt: true });
 
 export type Adgang = {
   /** Gatewayens roller for kaldet. */
   roller: readonly GatewayRolle[];
-  /** Lagerets roller fra /me; null = ukendt (/me svarede ikke): intet skjules, lageret afgør. */
+  /**
+   * Lagerets roller fra /me. null = ikke slået op (createServer uden roller, fx stdio-tests): intet
+   * skjules, lageret afgør. Kunne /me ikke slås op, er det UKENDTE_LAGERROLLER (fail-closed).
+   */
   lager: Lagerroller | null;
 };
 
@@ -97,6 +109,7 @@ export function afvisning(k: Krav, a: Adgang): string | null {
   if (!maaLaese(a)) return `${k.navn}: du har ingen lager-rolle i gatewayen (lager-laes eller lager-skriv).`;
   if (k.skriv && !maaSkrive(a)) return `${k.navn} skriver, og du har kun læseadgang til lageret gennem MCP (gatewayens rolle lager-skriv mangler).`;
   if (a.lager?.kunKiosk) return `${k.navn}: kioskkontoen kan kun bruges på kioskskærmen.`;
+  if (k.ansvarlig && a.lager?.ukendt) return `${k.navn} kræver rollen lageransvarlig, og dine roller i lageret kunne ikke slås op lige nu (/me). Prøv igen om lidt.`;
   if (k.ansvarlig && a.lager && !a.lager.ansvarlig) return `${k.navn} kræver rollen lageransvarlig, og du er ikke lageransvarlig på noget lager (se lager_me).`;
   return null;
 }
@@ -115,18 +128,27 @@ export function lagerrollerFra(me: Me | undefined | null): Lagerroller | null {
  * Lagerets roller pr. bruger, kort cachet (standard 60 s, LAGER_ROLLER_TTL_MS): værktøjslisten
  * bygges pr. HTTP-kald, og en rolle, personen mister i lageret, skal hurtigt forsvinde her.
  * Et opslag giver også installationens moduler (samme /me), så ModulCache ikke spørger igen.
+ *
+ * Svarer /me ikke (eller uden lagre), bruges de sidst kendte roller højst LAGER_ROLLER_MAKS_ALDER_MS
+ * (standard 5 minutter) fra det svar, de kom fra; derefter, og når intet er kendt,
+ * UKENDTE_LAGERROLLER (fail-closed for den lageransvarliges værktøjer).
  */
 export class LagerrolleCache {
-  private readonly data = new Map<string, { roller: Lagerroller | null; tid: number }>();
-  private readonly igang = new Map<string, Promise<Lagerroller | null>>();
+  private readonly data = new Map<string, { roller: Lagerroller; tid: number }>();
+  private readonly igang = new Map<string, Promise<Lagerroller>>();
 
-  constructor(private readonly ttlMs = Number(process.env.LAGER_ROLLER_TTL_MS ?? 60_000)) {}
+  constructor(
+    private readonly ttlMs = Number(process.env.LAGER_ROLLER_TTL_MS ?? 60_000),
+    private readonly maksAlderMs = Number(process.env.LAGER_ROLLER_MAKS_ALDER_MS ?? 5 * 60_000),
+  ) {}
 
-  async hent(client: LagerClient, vedModuler?: (m: Moduler) => void): Promise<Lagerroller | null> {
+  async hent(client: LagerClient, vedModuler?: (m: Moduler) => void): Promise<Lagerroller> {
     const noegle = client.user.toLowerCase();
     const kendt = this.data.get(noegle);
     if (kendt && Date.now() - kendt.tid < this.ttlMs) return kendt.roller;
     let p = this.igang.get(noegle);
+    // De sidst kendte roller, mens de ikke er for gamle; ellers fail-closed.
+    const reserve = (): Lagerroller => (kendt && Date.now() - kendt.tid < this.maksAlderMs ? kendt.roller : UKENDTE_LAGERROLLER);
     if (!p) {
       p = client
         .get<Me>('/me')
@@ -135,10 +157,10 @@ export class LagerrolleCache {
           const roller = lagerrollerFra(me);
           if (roller) this.data.set(noegle, { roller, tid: Date.now() });
           // Et svar uden lagre caches ikke: næste kald spørger igen.
-          return roller ?? kendt?.roller ?? null;
+          return roller ?? reserve();
         })
-        // Kan /me ikke nås (eller svarer 403: ingen lagre), skjules intet; lageret afviser selv.
-        .catch(() => kendt?.roller ?? null)
+        // Kan /me ikke nås (eller svarer 403: ingen lagre): de sidst kendte roller en kort tid, så fail-closed.
+        .catch(() => reserve())
         .finally(() => this.igang.delete(noegle));
       this.igang.set(noegle, p);
     }

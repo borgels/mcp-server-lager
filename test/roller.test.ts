@@ -8,7 +8,7 @@ import { createServer, createServerMedModuler } from '../src/server.js';
 import { LagerClient } from '../src/lager/client.js';
 import { ModulCache } from '../src/lager/moduler.js';
 import {
-  afvisning, konfigureredeRoller, LagerrolleCache, lagerrollerFra, rollerForKald, tolkRoller, type Adgang, type Lagerroller,
+  afvisning, konfigureredeRoller, LagerrolleCache, lagerrollerFra, rollerForKald, tolkRoller, UKENDTE_LAGERROLLER, type Adgang, type Lagerroller,
 } from '../src/lager/roller.js';
 import { CAPABILITIES, searchCapabilities } from '../src/lager/capabilities.js';
 import { assertHttpStartupConfig } from '../src/transports/startup.js';
@@ -172,11 +172,37 @@ describe('værktøjslisten følger rollen', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
-  it('kan /me ikke nås, skjules intet (lageret afviser selv)', async () => {
+  it('kan /me ikke nås: fail-closed for den lageransvarliges værktøjer; brugerens egne er der', async () => {
     const fetchFn = vi.fn(async () => svar(403, { error: 'Du har ikke adgang til et lager' }));
     const client = new LagerClient({ baseUrl: 'https://lager.test', apiToken: 'tok', user: 'ny@example.com', fetchFn: fetchFn as unknown as typeof fetch, maxRetries: 0 });
     const roller = await new LagerrolleCache().hent(client);
-    expect(roller).toBeNull();
+    expect(roller).toEqual(UKENDTE_LAGERROLLER);
+    const adgang: Adgang = { roller: ['lager-skriv'], lager: roller };
+    expect(afvisning({ navn: 'lager_ansvarlig_model_opret', skriv: true, ansvarlig: true }, adgang)).toMatch(/kunne ikke slås op/);
+    expect(afvisning({ navn: 'lager_tjek_ud', skriv: true, ansvarlig: false }, adgang)).toBeNull();
+    const t = await navne(await forbind(vi.fn() as unknown as typeof fetch, adgang));
+    expect(t).toContain('lager_tjek_ud');
+    expect(t.filter((n) => n.startsWith('lager_ansvarlig_'))).toEqual([]);
+  });
+
+  it('de sidst kendte roller bruges højst LAGER_ROLLER_MAKS_ALDER_MS, når /me fejler', async () => {
+    let ok = true;
+    const fetchFn = vi.fn(async () => (ok ? svar(200, { lagre: [{ ansvarlig: true, medarbejder: true }], ansvarlig: true, kunKiosk: false }) : svar(500, { error: 'nede' })));
+    const client = new LagerClient({ baseUrl: 'https://lager.test', apiToken: 'tok', user: 'ansv@example.com', fetchFn: fetchFn as unknown as typeof fetch, maxRetries: 0 });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const cache = new LagerrolleCache(60_000, 5 * 60_000);
+      expect((await cache.hent(client)).ansvarlig).toBe(true);
+      ok = false;
+      vi.setSystemTime(Date.now() + 2 * 60_000);
+      expect(await cache.hent(client)).toMatchObject({ ansvarlig: true });
+      vi.setSystemTime(Date.now() + 4 * 60_000);
+      expect(await cache.hent(client)).toEqual(UKENDTE_LAGERROLLER);
+      ok = true;
+      expect((await cache.hent(client)).ansvarlig).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -261,7 +287,10 @@ describe('den lageransvarliges nye skrivninger', () => {
     const fetchFn = vi.fn(async () => svar(200, { versioner: [] }));
     const mcp = await forbind(fetchFn as unknown as typeof fetch, ansvarlig);
     await mcp.callTool({ name: 'lager_ansvarlig_priser', arguments: { modelId: 12 } });
-    await mcp.callTool({ name: 'lager_ansvarlig_pris_saet', arguments: { modelId: 12, gyldigFra: '2026-11-01', dagssats: 110 } });
+    const udenJa = await mcp.callTool({ name: 'lager_ansvarlig_pris_saet', arguments: { modelId: 12, gyldigFra: '2026-11-01', dagssats: 110 } });
+    expect(udenJa.isError).toBe(true);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    await mcp.callTool({ name: 'lager_ansvarlig_pris_saet', arguments: { modelId: 12, gyldigFra: '2026-11-01', dagssats: 110, bekraeftet: true } });
     const [laes] = fetchFn.mock.calls[0] as unknown as Kald;
     expect(laes.toString()).toBe('https://lager.test/api/lager/ansvarlig/priser?model=12');
     const [url, init] = fetchFn.mock.calls[1] as unknown as Kald;

@@ -11,7 +11,7 @@ Bag en autentificerende MCP-gateway er brugeren verificeret af Entra og medlem a
 To lag skal begge sige ja, og lager-appen håndhæver desuden altid sine egne roller (403):
 
 1. **Gatewayens roller** (`X-MCP-Roles`, sat af gatewayen ud fra personens Entra-grupper i `hosts.json` → `roles`; aldrig af klienten). Med `LAGER_ROLLER=gateway` kommer de pr. kald fra headeren, og et kald uden en kendt rolle afvises med 403. Ellers gælder en fast rolle for alle kald (`LAGER_ROLLER=lager-laes` eller `lager-skriv`; standard `lager-skriv`, så en gateway uden roller virker som før). `LAGER_ENABLE_WRITES=true` er stadig hovedafbryderen: uden den skriver ingen, uanset rolle.
-2. **Lagerets roller** fra `/me` (`vaerktoejsbruger`, `lageransvarlig`, `kiosk` pr. lager), cachet pr. person i `LAGER_ROLLER_TTL_MS` (standard 60 s). Den lageransvarliges værktøjer (`lager_ansvarlig_*`, og `scenario_*`, der skriver under `/ansvarlig`) vises kun for den, der er lageransvarlig på mindst ét lager. Det er synlighed og en ekstra vagt; lageret afgør pr. lager.
+2. **Lagerets roller** fra `/me` (`vaerktoejsbruger`, `lageransvarlig`, `kiosk` pr. lager), cachet pr. person i `LAGER_ROLLER_TTL_MS` (standard 60 s). Den lageransvarliges værktøjer (`lager_ansvarlig_*`, og `scenario_*`, der skriver under `/ansvarlig`) vises kun for den, der er lageransvarlig på mindst ét lager. Det er synlighed og en ekstra vagt; lageret afgør pr. lager. Svarer `/me` ikke, bruges de sidst kendte roller højst `LAGER_ROLLER_MAKS_ALDER_MS` (standard 5 minutter); derefter, og når intet er kendt, er det fail-closed: brugerens egne værktøjer vises, den lageransvarliges skjules og afvises, til `/me` svarer igen.
 
 | Gateway-rolle | Lagerets rolle | Ser og kan kalde |
 | --- | --- | --- |
@@ -24,7 +24,7 @@ To lag skal begge sige ja, og lager-appen håndhæver desuden altid sine egne ro
 
 `lager_me` og `lager_search_capabilities` er altid synlige for den, der har en rolle; søgningen viser kun det, personen må. Et skjult værktøj, der alligevel kaldes, afvises, før lageret spørges (og logges som `policy_denied`).
 
-**Bekræftelse:** kassering, fejlregistrering, sletning, annullering og opløsning (`lager_ansvarlig_kasser`, `_fejlregistrer`, `_udtag_annuller`, `_periode_annuller`, `_saet_oploes`, `_lokation_nedlaeg`, `_kanban_tilbagekald`, `_iot_alarmregel_fjern` og `scenario_slet`) er `destructiveHint` og kræver `bekraeftet: true`: brugerens udtrykkelige ja i samtalen. Feltet sendes ikke til lageret. Et ejerskift (omm-lager #230) får samme krav, når det kommer.
+**Bekræftelse:** kassering, fejlregistrering, sletning, annullering, opløsning og det, der flytter penge (`lager_ansvarlig_kasser`, `_fejlregistrer`, `_udtag_registrer`, `_udtag_annuller`, `_periode_ret`, `_periode_annuller`, `_pris_saet`, `_saet_oploes`, `_saet_fjern_del`, `_lokation_nedlaeg`, `_kanban_tilbagekald`, `_iot_alarmregel_fjern`, `scenario_slet`, og `_optaelling_afgoer` med «savnet») er `destructiveHint` og kræver `bekraeftet: true`: brugerens udtrykkelige ja i samtalen. Feltet sendes ikke til lageret. Lageret afviser desuden gennem gatewayen alt, der krediterer det bogførte (`krediter` ved fejlregistrering, annullering af en faktureret periode eller et faktureret udtag), og en pris i en oprettelse, der rammer en kendt model eller vare (varenummeret går igen). Et ejerskift (omm-lager #230) får samme krav, når det kommer.
 
 ## Tools
 

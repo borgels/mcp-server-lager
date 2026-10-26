@@ -44,9 +44,10 @@ export type ToolSpec = {
   /**
    * Kassering, fejlregistrering, sletning, annullering og andet, der ikke kan fortrydes:
    * værktøjet kræver bekraeftet: true (brugerens udtrykkelige ja) og er destruktivt.
-   * Feltet sendes ikke til lageret (bygger.ts, BEKRAEFTET).
+   * Feltet sendes ikke til lageret (bygger.ts, BEKRAEFTET). En funktion: kun når den siger ja
+   * for kaldet (fx en afgørelse «savnet»); feltet er så valgfrit i skemaet og tjekkes ved kaldet.
    */
-  bekraeftes?: boolean;
+  bekraeftes?: boolean | ((input: Input) => boolean);
   /** openWorldHint: værktøjet rækker ud i den fysiske verden (fx Home Assistant), ikke kun lagerets data. */
   aabenVerden?: boolean;
   /** idempotentHint, når metoden ikke siger det: PUT, PATCH og DELETE er idempotente, POST ikke. */
@@ -565,7 +566,9 @@ export const KATALOG: ToolSpec[] = [
     // Kassation, at give en enhed til en person og at oprette en enhed er menneskets afgørelse i appen.
     begraens: { 'afgoerelse.slags': ['savnet', 'ikke_vores', 'plads_flyttet', 'ok'] },
     skjul: ['afgoerelse.personId', 'afgoerelse.projektId', 'afgoerelse.note', 'afgoerelse.modelId'], destruktiv: true,
-    beskrivelse: 'Afgør én afvigelse (linjeId fra status): savnet | ikke_vores | plads_flyttet | ok. Kassation, «hos en person» og «opret enhed» afgøres i appen. Udføres først, når optællingen lukkes.',
+    // «savnet» melder enheden savnet, når optællingen lukkes: brugerens udtrykkelige ja.
+    bekraeftes: (i) => (i.afgoerelse as { slags?: unknown } | undefined)?.slags === 'savnet',
+    beskrivelse: 'Afgør én afvigelse (linjeId fra status): savnet | ikke_vores | plads_flyttet | ok. «savnet» melder enheden savnet og kræver bekraeftet: true efter brugerens udtrykkelige ja. Kassation, «hos en person» og «opret enhed» afgøres i appen. Udføres først, når optællingen lukkes.',
     kort: 'Lageransvarlig: afgør en afvigelse i en optælling.', eksempler: ['T-00020 er savnet', 'T-00031 står det rigtige sted nu'] },
   { navn: 'lager_ansvarlig_optaelling_luk', titel: 'Lageransvarlig: luk optælling', op: 'POST /ansvarlig/optaelling/{id}/luk', alias: { id: 'optaellingId' }, destruktiv: true,
     beskrivelse: 'Luk optællingen og udfør afgørelserne. Kræver at alle afvigelser har et svar. Bekræft med brugeren først.',
@@ -593,8 +596,8 @@ export const KATALOG: ToolSpec[] = [
     beskrivelse: 'Gør en enhed (kode) til del af sættet med mærket tag.',
     kort: 'Lageransvarlig: læg en enhed i et sæt.', eksempler: ['læg T-00040 i kassen T-00031'],
     beskriv: { tag: 'Sættets mærke (kassen).', kode: 'Delens mærke.' } },
-  { navn: 'lager_ansvarlig_saet_fjern_del', titel: 'Lageransvarlig: tag del ud af sæt', op: 'DELETE /ansvarlig/saet/{tag}/dele/{del}',
-    beskrivelse: 'Delen bliver en almindelig enhed.',
+  { navn: 'lager_ansvarlig_saet_fjern_del', titel: 'Lageransvarlig: tag del ud af sæt', op: 'DELETE /ansvarlig/saet/{tag}/dele/{del}', bekraeftes: true,
+    beskrivelse: 'Delen bliver en almindelig enhed. Vis sæt og del, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
     kort: 'Lageransvarlig: tag en del ud af et sæt.', eksempler: ['tag T-00040 ud af kassen T-00031'],
     beskriv: { tag: 'Sættets mærke (kassen).', del: 'Delens mærke.' } },
   { navn: 'lager_ansvarlig_saet_pakkeliste', titel: 'Lageransvarlig: sæt pakkeliste', op: 'PUT /ansvarlig/modeller/{id}/pakkeliste', alias: { id: 'modelId' },
@@ -605,7 +608,7 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_ansvarlig_model_opret', titel: 'Lageransvarlig: ny model', op: 'POST /ansvarlig/modeller',
     forbyd: { asbestStandard: ASBEST_STANDARD },
     beskriv: { bekraeft: MAERKER_BESKRIV.bekraeft!, maerker: 'Særhåndteringsmærkerne, en ny enhed af modellen får (nøglerne fra lager_saermaerker).' },
-    beskrivelse: 'Opret en model (værktøjstype) i lagerets selskab med første pris (kostpris, salgspris, dagssats fra gyldigFra). Med kategoriskabelon (lager_kategoriskabeloner) kan kategori udelades, og egenskaber følger skabelonens felter. Findes varenummeret i selskabet, rettes den kendte model i stedet: slå op med lager_ansvarlig_modeller først, så du ikke retter en anden model ved et uheld. Enhederne oprettes bagefter med lager_ansvarlig_enhed_opret.',
+    beskrivelse: 'Opret en model (værktøjstype) i lagerets selskab med første pris (kostpris, salgspris, dagssats fra gyldigFra). Med kategoriskabelon (lager_kategoriskabeloner) kan kategori udelades, og egenskaber følger skabelonens felter. Findes varenummeret i selskabet, rettes den kendte model i stedet: slå op med lager_ansvarlig_modeller først, så du ikke retter en anden model ved et uheld. En pris (kostpris, salgspris, dagssats) på en kendt model afvises (409): sæt den med lager_ansvarlig_pris_saet. Enhederne oprettes bagefter med lager_ansvarlig_enhed_opret.',
     kort: 'Lageransvarlig: opret en model (værktøjstype) med første pris.', eksempler: ['opret Makita DHR243 borehammer med dagssats 95 kr', 'ny model: Hilti TE 30 med kategoriskabelonen borehammer'] },
   { navn: 'lager_ansvarlig_enhed_opret', titel: 'Lageransvarlig: nye enheder', op: 'POST /ansvarlig/enheder',
     forbyd: { asbest: ASBEST },
@@ -638,7 +641,7 @@ export const KATALOG: ToolSpec[] = [
     beskrivelse: 'Fejlregistrér en enhed, der er oprettet ved en fejl (fx en dublet): den får status fejlregistreret, og historikken bliver stående. Har den aktive lejeperioder, skal brugeren vælge at annullere dem eller flytte dem til en anden enhed; ikke-godkendte afregninger markeres til genberegning. Fakturerede perioder kan ikke krediteres herfra (det sker i appen). Solgt udstyr og en enhed i karantæne, klargøring eller et procesforløb kan ikke fejlregistreres. Vis enheden og konsekvensen, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
     kort: 'Lageransvarlig: fejlregistrér en enhed, der er oprettet ved en fejl (kræver brugerens ja).', eksempler: ['T-00044 er oprettet to gange, fejlregistrér den', 'fejlregistrér T-00044 og flyt perioderne til T-00043'] },
   { navn: 'lager_ansvarlig_forbrugsvare_opret', titel: 'Lageransvarlig: ny forbrugsvare', op: 'POST /ansvarlig/forbrugsvarer',
-    beskrivelse: 'Opret en forbrugsvare (fx kabelbindere, filtre, handsker) med første pris, gruppe (lager_forbrugsgrupper), enhed og beholdningsform (antal eller niveau); stregkoder (EAN) kan komme med. Går varenummeret igen i selskabet, rettes den vare i stedet; en stregkode, der står på en anden vare, giver 409, og intet ændres. Beholdning og lokation sættes bagefter med lager_ansvarlig_forbrugsvare_beholdning_saet; en levering modtages med lager_ansvarlig_modtag_levering.',
+    beskrivelse: 'Opret en forbrugsvare (fx kabelbindere, filtre, handsker) med første pris, gruppe (lager_forbrugsgrupper), enhed og beholdningsform (antal eller niveau); stregkoder (EAN) kan komme med. Går varenummeret igen i selskabet, rettes den vare i stedet, og en pris på en kendt vare afvises (409: sæt den med lager_ansvarlig_pris_saet); en stregkode, der står på en anden vare, giver 409, og intet ændres. Beholdning og lokation sættes bagefter med lager_ansvarlig_forbrugsvare_beholdning_saet; en levering modtages med lager_ansvarlig_modtag_levering.',
     kort: 'Lageransvarlig: opret en forbrugsvare med pris, gruppe og stregkoder.', eksempler: ['opret kabelbindere 200 mm, pose, kostpris 39 kr', 'ny vare: nitrilhandsker str. L i gruppen værnemidler'] },
   { navn: 'lager_ansvarlig_forbrugsvare_ret', titel: 'Lageransvarlig: ret forbrugsvare', op: 'PUT /ansvarlig/forbrugsvarer/{id}', alias: { id: 'forbrugsvareId' },
     beskrivelse: 'Ret en forbrugsvares stamdata (navn, varenummer, leverandør, gruppe, enhed, aktiv, beholdningsform) og evt. dens samlede beholdning: minimum og talt (en optælling) på lokationId, eller uden den det ene sted, varen står (409, når den står flere steder: brug så lager_ansvarlig_forbrugsvare_beholdning_saet pr. lokation). aktiv: false slår varen fra. Kun de felter, der sendes, ændres. Prisen sættes med lager_ansvarlig_pris_saet.',
@@ -649,22 +652,22 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_ansvarlig_udtag', titel: 'Lageransvarlig: udtag i en periode', op: 'GET /ansvarlig/forbrug',
     beskrivelse: 'Udtag af forbrugsvarer på lageret i perioden fra–til (alle personer og projekter), evt. også de annullerede.',
     kort: 'Lageransvarlig: udtag af forbrugsvarer i en periode.', eksempler: ['hvad er der taget af forbrugsvarer i oktober?'] },
-  { navn: 'lager_ansvarlig_udtag_registrer', titel: 'Lageransvarlig: registrér udtag for en anden', op: 'POST /ansvarlig/forbrug',
-    beskrivelse: 'Registrér et udtag af en forbrugsvare på et projekt på vegne af en person (personId, ellers dig selv), evt. bagudrettet (dato). Til et udtag, der ikke blev registreret; eget udtag er lager_forbrug. Skriv en begrundelse.',
+  { navn: 'lager_ansvarlig_udtag_registrer', titel: 'Lageransvarlig: registrér udtag for en anden', op: 'POST /ansvarlig/forbrug', bekraeftes: true,
+    beskrivelse: 'Registrér et udtag af en forbrugsvare på et projekt på vegne af en person (personId, ellers dig selv), evt. bagudrettet (dato). Udtaget går i projektets afregning. Til et udtag, der ikke blev registreret; eget udtag er lager_forbrug. Skriv en begrundelse, vis vare, antal, person, projekt og dato, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
     kort: 'Lageransvarlig: registrér et udtag på vegne af en anden, evt. bagudrettet.', eksempler: ['Kim tog 2 pakker filtre til sag 2620 i går'] },
   { navn: 'lager_ansvarlig_udtag_annuller', titel: 'Lageransvarlig: annullér udtag', op: 'DELETE /ansvarlig/forbrug/{id}', alias: { id: 'udtagId' }, bekraeftes: true,
-    beskrivelse: 'Annullér et registreret udtag (id fra lager_ansvarlig_udtag) med en begrundelse; varen lægges tilbage i beholdningen, og udtaget går ikke i afregningen. Vis udtaget, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
+    beskrivelse: 'Annullér et registreret udtag (id fra lager_ansvarlig_udtag) med en begrundelse; varen lægges tilbage i beholdningen, og et udtag, der ikke er faktureret, kommer ikke med i næste afregning. Er udtaget faktureret (på en bogført afregning), ville annulleringen kreditere det: lageret afviser det gennem MCP (403), og det sker i appen. Vis udtaget, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
     kort: 'Lageransvarlig: annullér et udtag af en forbrugsvare (kræver brugerens ja).', eksempler: ['udtaget af 5 filtre var en fejl, annullér det'],
     beskriv: { udtagId: 'Udtagets id (se lager_ansvarlig_udtag).' } },
   { navn: 'lager_ansvarlig_periode_opret', titel: 'Lageransvarlig: ny lejeperiode', op: 'POST /ansvarlig/perioder',
     beskrivelse: 'Tast en lejeperiode for en enhed på et projekt (fra, evt. til): historik eller en udlevering, der ikke blev scannet. Perioden går direkte i afregningen, så tjek først lager_ansvarlig_perioder for enheden, og skriv en begrundelse.',
     kort: 'Lageransvarlig: tast en lejeperiode for en enhed på et projekt.', eksempler: ['T-00012 var på sag 2620 fra 1. til 10. september, det blev ikke scannet'] },
-  { navn: 'lager_ansvarlig_periode_ret', titel: 'Lageransvarlig: ret lejeperiode', op: 'PUT /ansvarlig/perioder/{id}', alias: { id: 'periodeId' },
-    beskrivelse: 'Ret en lejeperiodes fra, til, projekt eller person med en begrundelse (id fra lager_ansvarlig_perioder). Det bogførte røres ikke; en ændring går i den næste afregning. Vis før og efter for brugeren.',
+  { navn: 'lager_ansvarlig_periode_ret', titel: 'Lageransvarlig: ret lejeperiode', op: 'PUT /ansvarlig/perioder/{id}', alias: { id: 'periodeId' }, bekraeftes: true,
+    beskrivelse: 'Ret en lejeperiodes fra, til, projekt eller person med en begrundelse (id fra lager_ansvarlig_perioder). Et andet projekt flytter lejen til en anden kunde. En afregnet periode kan ikke rettes (409); den annulleres i appen. En ændring går i den næste afregning. Vis før og efter, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
     kort: 'Lageransvarlig: ret en lejeperiode (datoer, projekt, person).', eksempler: ['perioden for T-00012 sluttede den 8., ikke den 10.'],
     beskriv: { periodeId: 'Periodens id (se lager_ansvarlig_perioder).' } },
   { navn: 'lager_ansvarlig_periode_annuller', titel: 'Lageransvarlig: annullér lejeperiode', op: 'DELETE /ansvarlig/perioder/{id}', alias: { id: 'periodeId' }, bekraeftes: true,
-    beskrivelse: 'Annullér en lejeperiode med en begrundelse (id fra lager_ansvarlig_perioder); den går ikke i afregningen. Vis perioden, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
+    beskrivelse: 'Annullér en lejeperiode med en begrundelse (id fra lager_ansvarlig_perioder); en periode, der ikke er faktureret, kommer ikke med i næste afregning. Er den faktureret (på en bogført afregning), ville annulleringen kreditere det: lageret afviser det gennem MCP (403), og det sker i appen. Vis perioden, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
     kort: 'Lageransvarlig: annullér en lejeperiode (kræver brugerens ja).', eksempler: ['perioden for T-00012 på sag 2659 er forkert, annullér den'],
     beskriv: { periodeId: 'Periodens id (se lager_ansvarlig_perioder).' } },
   { navn: 'lager_ansvarlig_saet_oploes', titel: 'Lageransvarlig: opløs sæt', op: 'POST /ansvarlig/saet/{tag}/oploes', bekraeftes: true,
@@ -676,8 +679,8 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_ansvarlig_priser', titel: 'Lageransvarlig: priser og historik', op: 'GET /ansvarlig/priser', alias: { model: 'modelId', vare: 'forbrugsvareId' },
     beskrivelse: 'Prishistorikken (kostpris, salgspris, dagssats med gyldighed, kilde og hvem) for én model (modelId), én enhed (tag) eller én forbrugsvare; for en enhed også dagens sats. Uden emne: lagerets enheder uden pris i dag.',
     kort: 'Lageransvarlig: prishistorik for en model, enhed eller vare, eller enheder uden pris.', eksempler: ['hvad har dagssatsen for model 12 været?', 'hvilke enheder mangler pris?'] },
-  { navn: 'lager_ansvarlig_pris_saet', titel: 'Lageransvarlig: sæt pris', op: 'POST /ansvarlig/priser',
-    beskrivelse: 'Sæt en ny pris fra gyldigFra på en model (modelId), en enhed (tag) eller en forbrugsvare (forbrugsvareId): kostpris, salgspris og/eller dagssats. Den gamle pris bliver i historikken; leje fra gyldigFra regnes med den nye dagssats, når afregningen beregnes, men det bogførte røres ikke. En gyldigFra bagud i tiden ændrer ikke-bogførte afregninger: sig det til brugeren først.',
+  { navn: 'lager_ansvarlig_pris_saet', titel: 'Lageransvarlig: sæt pris', op: 'POST /ansvarlig/priser', bekraeftes: true,
+    beskrivelse: 'Sæt en ny pris fra gyldigFra på en model (modelId), en enhed (tag) eller en forbrugsvare (forbrugsvareId): kostpris, salgspris og/eller dagssats. Versioner med en anden gyldigFra bliver i historikken, men findes der allerede en version med samme gyldigFra, OVERSKRIVES den (upsert): slå op med lager_ansvarlig_priser først. Leje fra gyldigFra regnes med den nye dagssats, når afregningen beregnes; det bogførte røres ikke, men en gyldigFra bagud i tiden ændrer ikke-bogførte afregninger. Vis den nuværende og den nye pris, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
     kort: 'Lageransvarlig: sæt en ny pris (kost, salg, dagssats) fra en dato.', eksempler: ['dagssatsen for model 12 er 110 kr fra 1. november', 'kabelbinderne koster nu 42 kr'] },
 
   // ---------------------------------------------------------------- skriv: lokationstræet, evner og IoT
