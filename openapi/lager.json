@@ -562,6 +562,485 @@
         }
       }
     },
+    "/ansvarlig/berigelse": {
+      "x-moduler": [
+        "ai_berigelse"
+      ],
+      "get": {
+        "operationId": "lager_ansvarlig_berigelse",
+        "summary": "AI-berigelsen: modellerne med åbne forslag (antal, sikre, afvigelser), kørslerne, antal modeller, der mangler data, månedens forbrug og loftet (kr. og tokens) og modellen (Claude Sonnet 5.5 eller Opus 5.5)",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ modeller, koersler, mangler, forbrug, opsaetning, maaRette }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "modeller": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "navn": {
+                            "type": "string"
+                          },
+                          "fabrikat": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "kategori": {
+                            "type": "string"
+                          },
+                          "foto": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "aabne": {
+                            "type": "integer"
+                          },
+                          "sikre": {
+                            "type": "integer"
+                          },
+                          "afvigelser": {
+                            "type": "integer"
+                          },
+                          "iKoe": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    },
+                    "koersler": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "slags": {
+                            "type": "string",
+                            "enum": [
+                              "modeller",
+                              "mangler"
+                            ]
+                          },
+                          "vej": {
+                            "type": "string",
+                            "enum": [
+                              "direkte",
+                              "batch"
+                            ],
+                            "description": "batch: Message Batches API (halv tokenpris)"
+                          },
+                          "aiModel": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "venter",
+                              "koerer",
+                              "faerdig",
+                              "stoppet_loft",
+                              "stoppet"
+                            ]
+                          },
+                          "besked": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "startetAf": {
+                            "type": "string"
+                          },
+                          "oprettet": {
+                            "type": "string"
+                          },
+                          "afsluttet": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "antal": {
+                            "type": "object",
+                            "properties": {
+                              "i_alt": {
+                                "type": "integer"
+                              },
+                              "venter": {
+                                "type": "integer"
+                              },
+                              "i_gang": {
+                                "type": "integer"
+                              },
+                              "faerdig": {
+                                "type": "integer"
+                              },
+                              "fejl": {
+                                "type": "integer"
+                              },
+                              "sprunget_over": {
+                                "type": "integer"
+                              },
+                              "forslag": {
+                                "type": "integer"
+                              }
+                            }
+                          },
+                          "kr": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "mangler": {
+                      "type": "integer"
+                    },
+                    "forbrug": {
+                      "type": "object",
+                      "properties": {
+                        "kr": {
+                          "type": "number"
+                        },
+                        "tokens": {
+                          "type": "integer"
+                        },
+                        "reserveretKr": {
+                          "type": "number"
+                        },
+                        "kald": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "opsaetning": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "udbyder": {
+                              "type": "string"
+                            },
+                            "aiModel": {
+                              "type": "string"
+                            },
+                            "standardModel": {
+                              "type": "string"
+                            },
+                            "modeller": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "loftKr": {
+                              "type": "number"
+                            },
+                            "loftTokens": {
+                              "type": "integer"
+                            },
+                            "batch": {
+                              "type": "boolean"
+                            },
+                            "rettetAf": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "maaRette": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "lager_ansvarlig_berigelse_start",
+        "summary": "Start AI-berigelse af én eller flere modeller (modelIder) eller af alle, der mangler data (mangler: true). Claude søger producentens sider og PDF'er (web search og web fetch) og lægger forslag pr. felt med kilde, citat og sikkerhed; intet skrives på modellerne. Kun modeldata (fabrikat, navn, varenumre, leverandør, kategori) sendes ud. Køen kører i baggrunden; læs forslagene med GET /ansvarlig/modeller/{id}/forslag",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "modelIder": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "mangler": {
+                    "type": "boolean",
+                    "description": "Alle aktive modeller, der mangler data, uden åbne forslag og ikke beriget de seneste 30 dage (højst 500)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ koersel: null, iKoe }: intet at gøre"
+          },
+          "202": {
+            "description": "{ koersel, iKoe }: kørslen er startet; iKoe er modeller, der allerede stod i kø"
+          },
+          "404": {
+            "description": "En model findes ikke på lageret, eller modulet er fra"
+          },
+          "409": {
+            "description": "Månedens loft er nået"
+          },
+          "422": {
+            "description": "Hverken modelIder eller mangler"
+          },
+          "503": {
+            "description": "Ikke sat op hos driften"
+          }
+        }
+      },
+      "put": {
+        "x-mcp": {
+          "vaerktoej": false,
+          "grund": "Loftet for AI-forbruget og modellen er et menneskes valg i appen, aldrig en agents."
+        },
+        "summary": "Model og loft for AI-berigelsen (hele installationen, kræver indstillingsretten): aiModel, loftKr, loftTokens (null = driftens standard)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "aiModel": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "enum": [
+                      "claude-sonnet-5-5",
+                      "claude-opus-5-5",
+                      null
+                    ]
+                  },
+                  "loftKr": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "loftTokens": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Som GET"
+          },
+          "403": {
+            "description": "Uden indstillingsretten, eller gennem MCP-gatewayen"
+          },
+          "422": {
+            "description": "Ugyldig model eller loft"
+          }
+        }
+      }
+    },
+    "/ansvarlig/berigelse/koersler/{id}": {
+      "x-moduler": [
+        "ai_berigelse"
+      ],
+      "post": {
+        "operationId": "lager_ansvarlig_berigelse_koersel",
+        "summary": "Stop eller fortsæt en AI-berigelse: stop springer det over, der venter (og annullerer en batch); fortsaet sætter en stoppet kørsel i gang igen",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "handling": {
+                    "type": "string",
+                    "enum": [
+                      "stop",
+                      "fortsaet"
+                    ]
+                  }
+                },
+                "required": [
+                  "handling"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ koersel }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "koersel": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "slags": {
+                          "type": "string",
+                          "enum": [
+                            "modeller",
+                            "mangler"
+                          ]
+                        },
+                        "vej": {
+                          "type": "string",
+                          "enum": [
+                            "direkte",
+                            "batch"
+                          ],
+                          "description": "batch: Message Batches API (halv tokenpris)"
+                        },
+                        "aiModel": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "venter",
+                            "koerer",
+                            "faerdig",
+                            "stoppet_loft",
+                            "stoppet"
+                          ]
+                        },
+                        "besked": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "startetAf": {
+                          "type": "string"
+                        },
+                        "oprettet": {
+                          "type": "string"
+                        },
+                        "afsluttet": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "antal": {
+                          "type": "object",
+                          "properties": {
+                            "i_alt": {
+                              "type": "integer"
+                            },
+                            "venter": {
+                              "type": "integer"
+                            },
+                            "i_gang": {
+                              "type": "integer"
+                            },
+                            "faerdig": {
+                              "type": "integer"
+                            },
+                            "fejl": {
+                              "type": "integer"
+                            },
+                            "sprunget_over": {
+                              "type": "integer"
+                            },
+                            "forslag": {
+                              "type": "integer"
+                            }
+                          }
+                        },
+                        "kr": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kørslen findes ikke på lagerets selskab"
+          },
+          "409": {
+            "description": "Kørslen er færdig, kører allerede, eller loftet er nået"
+          }
+        }
+      }
+    },
     "/ansvarlig/bestillinger": {
       "x-moduler": [
         "bestillinger"
@@ -1625,6 +2104,17 @@
         }
       }
     },
+    "/ansvarlig/etiketter/medier": {
+      "get": {
+        "operationId": "lager_etiketmedier",
+        "summary": "Mediekataloget: Brother QL's DK-ruller (62 mm endeløs, 62 × 29, 29 × 90, 102 mm, 102 × 152 …), TZe 6–36 mm, Niimbot, Dymo og A4. For hvert medie, hvilke etikettyper det kan bære, og formatet (mål og QR), eller hvorfor ikke. Og hvilke familier hver forbindelse kan tale med",
+        "responses": {
+          "200": {
+            "description": "{ medier: [Etiketmedie & { typer: { <etikettype>: { passer, format | grund } } }], typer, forbindelser }"
+          }
+        }
+      }
+    },
     "/ansvarlig/etiketter/pladser": {
       "get": {
         "summary": "Hyldeetiketter som PDF (?zone=A, eller alle særlige zoner)",
@@ -1652,21 +2142,10 @@
         }
       }
     },
-    "/ansvarlig/etiketter/print": {
+    "/ansvarlig/etiketter/plan": {
       "post": {
-        "summary": "Print etiketter på en label-service (fx brother_ql_web ved en Brother QL), som installationen har sat op i LAGER_ETIKETPRINTERE. Enheder med tags, eller lokationer med lager og rod (id)/typer/koder; højst 50. Samme Idempotency-Key printer ikke igen (#108); en anden krop med samme nøgle er 422",
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "pattern": "^[A-Za-z0-9_-]{16,64}$"
-            },
-            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
-          }
-        ],
+        "operationId": "lager_ansvarlig_etiketter_plan",
+        "summary": "Printdialogens plan uden at printe: etiketterne delt efter etikettype og printer (den nærmeste her med et medie, typen passer på), med format, forhåndsvisning og printerne på lageret. En gruppe uden printer har grunden (skift_rulle med medierne, der passer, kan_ikke_naa eller ingen_printer) og PDF-formatet. no-store",
         "requestBody": {
           "required": true,
           "content": {
@@ -1674,20 +2153,19 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "printer": {
-                    "type": "string"
-                  },
                   "tags": {
                     "type": "array",
                     "items": {
                       "type": "string"
-                    }
+                    },
+                    "description": "Enhedernes mærker (ét lager)"
                   },
                   "lager": {
                     "type": "integer"
                   },
                   "rod": {
-                    "type": "integer"
+                    "type": "integer",
+                    "description": "Lokationer: undertræets rod (id)"
                   },
                   "typer": {
                     "type": "array",
@@ -1722,7 +2200,155 @@
                     "type": "array",
                     "items": {
                       "type": "string"
+                    },
+                    "description": "Lokationer: netop disse koder"
+                  },
+                  "kort": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "description": "Kanbankort (modulet kanban): kortenes id'er"
+                  },
+                  "her": {
+                    "type": "integer",
+                    "description": "Lokationen, brugeren står ved"
+                  },
+                  "husk": {
+                    "type": "object",
+                    "description": "{ <etikettype>: printer-id } husket fra sidst"
+                  },
+                  "valg": {
+                    "type": "object",
+                    "description": "{ <etikettype>: printer-id } valgt nu"
+                  },
+                  "kunne": {
+                    "type": "object",
+                    "properties": {
+                      "webusb": {
+                        "type": "boolean"
+                      },
+                      "bluetooth": {
+                        "type": "boolean"
+                      },
+                      "dele": {
+                        "type": "boolean"
+                      }
                     }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ lagerId, antal, grupper: [{ type, koder, printer, format, pdf, grund, forhaandsvisning, printere }] }"
+          },
+          "404": {
+            "description": "Ingen af etiketterne findes"
+          },
+          "422": {
+            "description": "Etiketter printes pr. lager"
+          }
+        }
+      }
+    },
+    "/ansvarlig/etiketter/print": {
+      "post": {
+        "operationId": "lager_ansvarlig_etiketter_print",
+        "summary": "Print etiketter på en label-service, højst 50. printer som tal: en printer på lageret med forbindelsen label_service; hver etiket i formatet til sin etikettype (eller etikettype) på printerens medie, og passer det ikke, printes intet (422 siger, hvad der skal i). printer som tekst: en tjeneste fra LAGER_ETIKETPRINTERE med dens faste skabelon. Samme Idempotency-Key printer ikke igen (#108)",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,64}$"
+            },
+            "description": "Klientens nøgle, 16 til 64 tegn af A-Z, a-z, 0-9, _ og -: samme nøgle to gange = samme resultat, ingen dublet. Også to samtidige kald med samme nøgle giver ét resultat."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "printer": {
+                    "type": [
+                      "integer",
+                      "string"
+                    ]
+                  },
+                  "etikettype": {
+                    "type": "string",
+                    "enum": [
+                      "vaerktoej",
+                      "standard",
+                      "kasse",
+                      "hylde"
+                    ],
+                    "description": "vaerktoej (lille, 12–24 mm tape), standard (62 × 29), kasse (euroboks: QR ≥ 40 mm), hylde (strimmel med kode og sti)"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Enhedernes mærker (ét lager)"
+                  },
+                  "lager": {
+                    "type": "integer"
+                  },
+                  "rod": {
+                    "type": "integer",
+                    "description": "Lokationer: undertræets rod (id)"
+                  },
+                  "typer": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "sted",
+                        "bygning",
+                        "rum",
+                        "omraade",
+                        "vaeg",
+                        "reol",
+                        "skab",
+                        "plade",
+                        "hylde",
+                        "skuffe",
+                        "grid",
+                        "skum",
+                        "bin",
+                        "udskaering",
+                        "krog",
+                        "fag",
+                        "plads",
+                        "beholder",
+                        "depotrum",
+                        "container"
+                      ],
+                      "description": "Hvem må ligge i hvem: docs/lokationer.md § 1"
+                    }
+                  },
+                  "koder": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Lokationer: netop disse koder"
+                  },
+                  "kort": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "description": "Kanbankort (modulet kanban): kortenes id'er"
                   }
                 },
                 "required": [
@@ -1734,13 +2360,336 @@
         },
         "responses": {
           "200": {
-            "description": "{ printer, printet }"
+            "description": "{ printer, printet, formater? }"
           },
           "404": {
-            "description": "Printeren eller lokationen findes ikke"
+            "description": "Printeren eller etiketterne findes ikke"
+          },
+          "409": {
+            "description": "Printeren er slået fra, eller tjenesten står ikke længere i miljøet"
+          },
+          "422": {
+            "description": "Ikke en label-service-printer, eller mediet passer ikke til etikettypen"
           },
           "502": {
-            "description": "Printeren svarede ikke eller med en fejl; besked siger, hvor mange der nåede ud"
+            "description": "Printeren svarede ikke eller med en fejl; beskeden siger, hvor mange der nåede ud"
+          }
+        }
+      }
+    },
+    "/ansvarlig/etiketter/printere": {
+      "get": {
+        "operationId": "lager_ansvarlig_etiketprintere",
+        "summary": "Lagerets etiketprintere: hvor de står, forbindelse og ilagt medie, og tjenesterne i LAGER_ETIKETPRINTERE (id og navn, ikke adressen) med sat_op. ?lokation= giver «Printere her»: lokationens egne og de arvede, nærmeste først (arvet, afstand)",
+        "parameters": [
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          },
+          {
+            "name": "lokation",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Kun printerne, der gælder her"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ lagerId, printere: Etiketprinter[], tjenester, niimbot } eller { lokationId, printere }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "printere": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Etiketprinter"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "lager_ansvarlig_etiketprinter_opret",
+        "summary": "Sæt en printer op på en lokation (eller hele lageret). En label-service peger på en tjeneste fra LAGER_ETIKETPRINTERE ved id; uden medie tager den sin skabelons. Familien følger af forbindelsen, hvor den er entydig",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "lagerId": {
+                    "type": "integer"
+                  },
+                  "navn": {
+                    "type": "string"
+                  },
+                  "lokationId": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "forbindelse": {
+                    "type": "string",
+                    "enum": [
+                      "label_service",
+                      "webusb",
+                      "bluetooth",
+                      "del",
+                      "pdf"
+                    ],
+                    "description": "label_service: backenden sender PNG'en til en tjeneste fra LAGER_ETIKETPRINTERE (kun den kan printe fra serveren og MCP). webusb (P-touch), bluetooth (Niimbot), del (producentens app) og pdf printes fra appen"
+                  },
+                  "tjeneste": {
+                    "type": "string"
+                  },
+                  "familie": {
+                    "type": "string",
+                    "enum": [
+                      "brother-ql",
+                      "ptouch",
+                      "niimbot",
+                      "dymo",
+                      "ark"
+                    ]
+                  },
+                  "medie": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "navn",
+                  "forbindelse"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ printer: Etiketprinter }"
+          },
+          "404": {
+            "description": "Printeren findes ikke på et lager, du er ansvarlig for"
+          },
+          "409": {
+            "description": "Tjenesten er allerede sat op som en anden printer"
+          },
+          "422": {
+            "description": "Forbindelse, familie, tjeneste og medie passer ikke sammen (fx et TZe-medie i en Brother QL)"
+          }
+        }
+      }
+    },
+    "/ansvarlig/etiketter/printere/{id}": {
+      "patch": {
+        "operationId": "lager_ansvarlig_etiketprinter_ret",
+        "summary": "Ret en printer: navn, sted (lokationId), forbindelse, tjeneste, familie, medie, aktiv, note. Et nyt medie står i revisionsloggen",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Printerens id (fra /ansvarlig/etiketter/printere)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "navn": {
+                    "type": "string"
+                  },
+                  "lokationId": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "forbindelse": {
+                    "type": "string",
+                    "enum": [
+                      "label_service",
+                      "webusb",
+                      "bluetooth",
+                      "del",
+                      "pdf"
+                    ],
+                    "description": "label_service: backenden sender PNG'en til en tjeneste fra LAGER_ETIKETPRINTERE (kun den kan printe fra serveren og MCP). webusb (P-touch), bluetooth (Niimbot), del (producentens app) og pdf printes fra appen"
+                  },
+                  "tjeneste": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "familie": {
+                    "type": "string",
+                    "enum": [
+                      "brother-ql",
+                      "ptouch",
+                      "niimbot",
+                      "dymo",
+                      "ark"
+                    ]
+                  },
+                  "medie": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "aktiv": {
+                    "type": "boolean"
+                  },
+                  "note": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ printer: Etiketprinter }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "printer": {
+                      "$ref": "#/components/schemas/Etiketprinter"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Printeren findes ikke på et lager, du er ansvarlig for"
+          },
+          "409": {
+            "description": "Tjenesten er allerede sat op som en anden printer"
+          },
+          "422": {
+            "description": "Forbindelse, familie, tjeneste og medie passer ikke sammen (fx et TZe-medie i en Brother QL)"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "lager_ansvarlig_etiketprinter_slet",
+        "summary": "Slet printeren. En tjeneste fra miljøet gælder så igen på hele lageret med sin skabelon",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Printerens id (fra /ansvarlig/etiketter/printere)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ slettet }"
+          },
+          "404": {
+            "description": "Printeren findes ikke på et lager, du er ansvarlig for"
+          }
+        }
+      }
+    },
+    "/ansvarlig/etiketter/printere/{id}/medie": {
+      "put": {
+        "operationId": "lager_ansvarlig_etiketprinter_medie",
+        "summary": "Skift det ilagte medie (rulle, tape, ark). Det skal passe til printerens familie; hvem og hvornår står på printeren og i revisionsloggen",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Printerens id (fra /ansvarlig/etiketter/printere)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "medie": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Et id fra /ansvarlig/etiketter/medier; null = intet i"
+                  }
+                },
+                "required": [
+                  "medie"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ printer: Etiketprinter }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "printer": {
+                      "$ref": "#/components/schemas/Etiketprinter"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Printeren findes ikke på et lager, du er ansvarlig for"
+          },
+          "409": {
+            "description": "Tjenesten er allerede sat op som en anden printer"
+          },
+          "422": {
+            "description": "Forbindelse, familie, tjeneste og medie passer ikke sammen (fx et TZe-medie i en Brother QL)"
           }
         }
       }
@@ -1751,6 +2700,65 @@
         "responses": {
           "200": {
             "description": "{ standard, skabeloner, printere, niimbot }"
+          }
+        }
+      }
+    },
+    "/ansvarlig/etiketter/typer": {
+      "get": {
+        "operationId": "lager_etikettyper",
+        "summary": "Etikettyperne efter formål (værktøj, standard, kasse, hylde) og hvad der bruges hvor: installationens standarder for enhed, kanban, lokationstype:<type>, kategori:<id> og model:<id>, og de indbyggede uden. maaRette: lageransvarlig på alle lagre",
+        "responses": {
+          "200": {
+            "description": "{ typer, standarder, indbygget, kategorier, modeller, maaRette }"
+          }
+        }
+      },
+      "put": {
+        "operationId": "lager_ansvarlig_etikettype_saet",
+        "summary": "Sæt etikettypen for enheder, kanbankort, en lokationstype, en kategori eller en model (en model går forud for sin kategori). null = den indbyggede. Hele installationen; kræver lageransvarlig på alle lagre",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "hvad": {
+                    "type": "string",
+                    "description": "enhed | kanban | lokationstype:<type> | kategori:<id> | model:<id>"
+                  },
+                  "etikettype": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "enum": [
+                      "vaerktoej",
+                      "standard",
+                      "kasse",
+                      "hylde"
+                    ],
+                    "description": "vaerktoej (lille, 12–24 mm tape), standard (62 × 29), kasse (euroboks: QR ≥ 40 mm), hylde (strimmel med kode og sti)"
+                  }
+                },
+                "required": [
+                  "hvad",
+                  "etikettype"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ standarder }"
+          },
+          "403": {
+            "description": "Kræver lageransvarlig på alle lagre"
+          },
+          "404": {
+            "description": "Kategorien eller modellen findes ikke"
           }
         }
       }
@@ -5178,6 +6186,544 @@
           },
           "422": {
             "description": "Ukendt felt, forkert type, påkrævet felt mangler, eller skabelonen er slået fra"
+          }
+        }
+      }
+    },
+    "/ansvarlig/modeller/{id}/forslag": {
+      "x-moduler": [
+        "ai_berigelse"
+      ],
+      "get": {
+        "operationId": "lager_ansvarlig_model_forslag",
+        "summary": "AI-berigelsens forslag på en model: hvert felt med det, der står nu, og de åbne forslag med værdi, kilde, citat, side, sikkerhed og forhold (ny, opdatering, afvigelse)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "lager",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Lager-id; kan udelades, når personen kun har adgang til ét."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Modellens forslag",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "model": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "navn": {
+                          "type": "string"
+                        },
+                        "fabrikat": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "kategori": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "felter": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "felt": {
+                            "type": "string",
+                            "enum": [
+                              "fabrikat",
+                              "producent_varenr",
+                              "gtin",
+                              "leverandoervarenr",
+                              "produktside",
+                              "foto",
+                              "datablad",
+                              "manual",
+                              "sikkerhedsdatablad",
+                              "maal",
+                              "vaegt",
+                              "batterisystem",
+                              "spaending",
+                              "vaernemidler",
+                              "kategori"
+                            ]
+                          },
+                          "nu": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "Det, der står nu (dokumenternes navne, antal fotos)"
+                          },
+                          "forslag": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "integer"
+                                },
+                                "felt": {
+                                  "type": "string",
+                                  "enum": [
+                                    "fabrikat",
+                                    "producent_varenr",
+                                    "gtin",
+                                    "leverandoervarenr",
+                                    "produktside",
+                                    "foto",
+                                    "datablad",
+                                    "manual",
+                                    "sikkerhedsdatablad",
+                                    "maal",
+                                    "vaegt",
+                                    "batterisystem",
+                                    "spaending",
+                                    "vaernemidler",
+                                    "kategori"
+                                  ]
+                                },
+                                "vaerdi": {
+                                  "description": "Feltets værdi: tekst, { bredde_mm, dybde_mm, hoejde_mm } (maal), gram (vaegt), volt (spaending), { url } (foto), { url, titel } (dokumenter), { koder, belaeg: [{ kode, citat, side, kildeUrl }] } (vaernemidler), { leverandoer, varenr }"
+                                },
+                                "vis": {
+                                  "type": "string",
+                                  "description": "Værdien som kort tekst"
+                                },
+                                "kildeUrl": {
+                                  "type": "string",
+                                  "description": "Siden eller PDF'en, værdien står i"
+                                },
+                                "citat": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "side": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "description": "Sidetallet i PDF'en"
+                                },
+                                "sikkerhed": {
+                                  "type": "string",
+                                  "enum": [
+                                    "hoej",
+                                    "middel",
+                                    "lav"
+                                  ],
+                                  "description": "lav, når kilden ikke var blandt de sider, søgningen faktisk gav"
+                                },
+                                "forhold": {
+                                  "type": "string",
+                                  "enum": [
+                                    "ny",
+                                    "opdatering",
+                                    "afvigelse"
+                                  ],
+                                  "description": "ny: feltet er tomt; opdatering: erstatter det, berigelsen selv satte; afvigelse: erstatter et menneskes værdi (kræver overskriv)"
+                                },
+                                "sikker": {
+                                  "type": "boolean",
+                                  "description": "Med i alleSikre: høj sikkerhed og ikke en afvigelse"
+                                },
+                                "oprettet": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "aabne": {
+                      "type": "integer"
+                    },
+                    "sikre": {
+                      "type": "integer"
+                    },
+                    "afvigelser": {
+                      "type": "integer"
+                    },
+                    "iKoe": {
+                      "type": "boolean",
+                      "description": "Modellen står i kø eller beriges nu"
+                    },
+                    "senest": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "afsluttet": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "status": {
+                              "type": "string"
+                            },
+                            "forslag": {
+                              "type": "integer"
+                            },
+                            "fejl": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Modellen findes ikke på dine lagre, eller modulet er fra"
+          }
+        }
+      },
+      "post": {
+        "operationId": "lager_ansvarlig_model_forslag_afgoer",
+        "summary": "Godkend eller afvis AI-berigelsens forslag på en model. Godkend kræver bekraeftet: true, efter at et menneske har set forslaget og kilden; et forslag, der erstatter et felt, et menneske har sat (forhold afvigelse), kræver også overskriv: true på netop det forslag. alleSikre godkender de sikre (høj sikkerhed, ikke afvigelser). Fotos og PDF'er hentes af serveren",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "godkend": {
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "integer"
+                            },
+                            "overskriv": {
+                              "type": "boolean",
+                              "description": "Påkrævet for et forslag med forhold afvigelse: erstat menneskets værdi"
+                            }
+                          },
+                          "required": [
+                            "id"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "alleSikre": {
+                    "type": "boolean"
+                  },
+                  "afvis": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "bekraeftet": {
+                    "type": "boolean",
+                    "description": "Påkrævet (true) for godkend og alleSikre: et menneske har valgt det"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ godkendt, afvist, fejl: [{ id, felt, grund }], forslag }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "godkendt": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "afvist": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "fejl": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "felt": {
+                            "type": "string",
+                            "enum": [
+                              "fabrikat",
+                              "producent_varenr",
+                              "gtin",
+                              "leverandoervarenr",
+                              "produktside",
+                              "foto",
+                              "datablad",
+                              "manual",
+                              "sikkerhedsdatablad",
+                              "maal",
+                              "vaegt",
+                              "batterisystem",
+                              "spaending",
+                              "vaernemidler",
+                              "kategori"
+                            ]
+                          },
+                          "grund": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "forslag": {
+                      "type": "object",
+                      "properties": {
+                        "model": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "integer"
+                            },
+                            "navn": {
+                              "type": "string"
+                            },
+                            "fabrikat": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "kategori": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "felter": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "felt": {
+                                "type": "string",
+                                "enum": [
+                                  "fabrikat",
+                                  "producent_varenr",
+                                  "gtin",
+                                  "leverandoervarenr",
+                                  "produktside",
+                                  "foto",
+                                  "datablad",
+                                  "manual",
+                                  "sikkerhedsdatablad",
+                                  "maal",
+                                  "vaegt",
+                                  "batterisystem",
+                                  "spaending",
+                                  "vaernemidler",
+                                  "kategori"
+                                ]
+                              },
+                              "nu": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "description": "Det, der står nu (dokumenternes navne, antal fotos)"
+                              },
+                              "forslag": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "integer"
+                                    },
+                                    "felt": {
+                                      "type": "string",
+                                      "enum": [
+                                        "fabrikat",
+                                        "producent_varenr",
+                                        "gtin",
+                                        "leverandoervarenr",
+                                        "produktside",
+                                        "foto",
+                                        "datablad",
+                                        "manual",
+                                        "sikkerhedsdatablad",
+                                        "maal",
+                                        "vaegt",
+                                        "batterisystem",
+                                        "spaending",
+                                        "vaernemidler",
+                                        "kategori"
+                                      ]
+                                    },
+                                    "vaerdi": {
+                                      "description": "Feltets værdi: tekst, { bredde_mm, dybde_mm, hoejde_mm } (maal), gram (vaegt), volt (spaending), { url } (foto), { url, titel } (dokumenter), { koder, belaeg: [{ kode, citat, side, kildeUrl }] } (vaernemidler), { leverandoer, varenr }"
+                                    },
+                                    "vis": {
+                                      "type": "string",
+                                      "description": "Værdien som kort tekst"
+                                    },
+                                    "kildeUrl": {
+                                      "type": "string",
+                                      "description": "Siden eller PDF'en, værdien står i"
+                                    },
+                                    "citat": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "side": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ],
+                                      "description": "Sidetallet i PDF'en"
+                                    },
+                                    "sikkerhed": {
+                                      "type": "string",
+                                      "enum": [
+                                        "hoej",
+                                        "middel",
+                                        "lav"
+                                      ],
+                                      "description": "lav, når kilden ikke var blandt de sider, søgningen faktisk gav"
+                                    },
+                                    "forhold": {
+                                      "type": "string",
+                                      "enum": [
+                                        "ny",
+                                        "opdatering",
+                                        "afvigelse"
+                                      ],
+                                      "description": "ny: feltet er tomt; opdatering: erstatter det, berigelsen selv satte; afvigelse: erstatter et menneskes værdi (kræver overskriv)"
+                                    },
+                                    "sikker": {
+                                      "type": "boolean",
+                                      "description": "Med i alleSikre: høj sikkerhed og ikke en afvigelse"
+                                    },
+                                    "oprettet": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "aabne": {
+                          "type": "integer"
+                        },
+                        "sikre": {
+                          "type": "integer"
+                        },
+                        "afvigelser": {
+                          "type": "integer"
+                        },
+                        "iKoe": {
+                          "type": "boolean",
+                          "description": "Modellen står i kø eller beriges nu"
+                        },
+                        "senest": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "afsluttet": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": "string"
+                                },
+                                "forslag": {
+                                  "type": "integer"
+                                },
+                                "fejl": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Modellen eller et forslag findes ikke (eller er afgjort)"
+          },
+          "409": {
+            "description": "Et forslag erstatter et menneskes værdi uden overskriv: { afvigelser: [{ id, felt, nu, forslag }] }; intet er skrevet"
+          },
+          "422": {
+            "description": "Godkend uden bekraeftet: true, eller intet at gøre"
           }
         }
       }
@@ -23158,6 +24704,153 @@
             "type": "string"
           },
           "tilbagekaldt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Etiketmedie": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Fx dk-22205, dk-11241, tze-24, a4-24"
+          },
+          "produkt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "navn": {
+            "type": "string"
+          },
+          "familie": {
+            "type": "string",
+            "enum": [
+              "brother-ql",
+              "ptouch",
+              "niimbot",
+              "dymo",
+              "ark"
+            ]
+          },
+          "form": {
+            "type": "string",
+            "enum": [
+              "endeloes",
+              "stanset",
+              "tape",
+              "ark",
+              "pdf"
+            ],
+            "description": "endeloes og tape: længden følger indholdet"
+          },
+          "bredde_mm": {
+            "type": "number"
+          },
+          "hoejde_mm": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "dpi": {
+            "type": "integer"
+          },
+          "brotherQl": {
+            "type": "string",
+            "description": "brother_ql's label_size; sendes til tjenesten, når den har feltet"
+          },
+          "kun": {
+            "type": "string",
+            "description": "Kun i disse printere"
+          }
+        }
+      },
+      "Etiketprinter": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "lagerId": {
+            "type": "integer"
+          },
+          "lokationId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "null = hele lageret. Printeren gælder på lokationen og alt under den"
+          },
+          "sted": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Stien uden lagerets rod"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "forbindelse": {
+            "type": "string",
+            "enum": [
+              "label_service",
+              "webusb",
+              "bluetooth",
+              "del",
+              "pdf"
+            ],
+            "description": "label_service: backenden sender PNG'en til en tjeneste fra LAGER_ETIKETPRINTERE (kun den kan printe fra serveren og MCP). webusb (P-touch), bluetooth (Niimbot), del (producentens app) og pdf printes fra appen"
+          },
+          "tjeneste": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Tjenestens id i LAGER_ETIKETPRINTERE (aldrig adressen)"
+          },
+          "familie": {
+            "type": "string",
+            "enum": [
+              "brother-ql",
+              "ptouch",
+              "niimbot",
+              "dymo",
+              "ark"
+            ]
+          },
+          "medie": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Etiketmedie"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Det ilagte; null = intet"
+          },
+          "medieSkiftet": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "medieAf": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aktiv": {
+            "type": "boolean"
+          },
+          "note": {
             "type": [
               "string",
               "null"
