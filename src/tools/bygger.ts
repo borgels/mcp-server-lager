@@ -28,8 +28,9 @@ export type Bygget = {
   aabenVerden: boolean;
   moduler: string[];
   /**
-   * Den lageransvarliges værktøj: navnet er lager_ansvarlig_*, eller en operation ligger
-   * under /ansvarlig/ (fx scenario_*). Skjules for en værktøjsbruger (src/lager/roller.ts).
+   * Den lageransvarliges værktøj: navnet er lager_ansvarlig_*, en operation ligger under /ansvarlig/
+   * (fx scenariernes skrivninger), eller kataloget siger det (ToolSpec.ansvarlig, fx placeringsmotoren).
+   * Skjules for en værktøjsbruger (src/lager/roller.ts).
    */
   ansvarlig: boolean;
   /** Værktøjet kan kræve bekraeftet: true, brugerens udtrykkelige ja (ToolSpec.bekraeftes). */
@@ -205,7 +206,7 @@ export function byg(spec: ToolSpec, doc: OpenApiDoc = SPEC): Bygget {
     idempotent: metode === 'get' || !!spec.laesende || (spec.idempotent ?? metode !== 'post'),
     aabenVerden: !!spec.aabenVerden,
     moduler: [...new Set(ops.flatMap((op) => modulerFor(op, doc)))].sort(),
-    ansvarlig: spec.navn.startsWith('lager_ansvarlig_') || ops.some((op) => splitOp(op).sti.startsWith('/ansvarlig/')),
+    ansvarlig: spec.ansvarlig ?? (spec.navn.startsWith('lager_ansvarlig_') || ops.some((op) => splitOp(op).sti.startsWith('/ansvarlig/'))),
     bekraeftes: !!spec.bekraeftes,
     kraeverBekraeftelse: (input) => (typeof spec.bekraeftes === 'function' ? spec.bekraeftes(input) : !!spec.bekraeftes),
     ops,

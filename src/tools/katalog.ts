@@ -48,6 +48,11 @@ export type ToolSpec = {
    * for kaldet (fx en afgørelse «savnet»); feltet er så valgfrit i skemaet og tjekkes ved kaldet.
    */
   bekraeftes?: boolean | ((input: Input) => boolean);
+  /**
+   * Den lageransvarliges værktøj, selv om navnet ikke er lager_ansvarlig_* og stien ikke ligger under
+   * /ansvarlig (fx placeringsmotoren på /scenarier/{id}/placering, som lageret kun giver den ansvarlige).
+   */
+  ansvarlig?: boolean;
   /** openWorldHint: værktøjet rækker ud i den fysiske verden (fx Home Assistant), ikke kun lagerets data. */
   aabenVerden?: boolean;
   /** idempotentHint, når metoden ikke siger det: PUT, PATCH og DELETE er idempotente, POST ikke. */
@@ -199,6 +204,9 @@ export const KATALOG: ToolSpec[] = [
   { navn: 'lager_me', titel: 'Hvem er jeg', op: 'GET /me',
     beskrivelse: 'Person, konto, lagre med roller (vaerktoejsbruger/lageransvarlig), installationens moduler (id → til/fra) og tal pr. lager. Asbest er ikke et modul: det er ét af særhåndteringsmærkerne (lager_saermaerker).',
     kort: 'Hvem er du, dine lagre, roller, moduler og lagrets tal.', eksempler: ['hvilke lagre har jeg adgang til'] },
+  { navn: 'lager_lagre', titel: 'Dine lagre', op: 'GET /lagre',
+    beskrivelse: 'Dine lagre med adresse, punkt på kortet, selskabet bag, udlejerne og antal enheder: kun dem, du er medarbejder på.',
+    kort: 'Dine lagre med adresse og placering på kortet.', eksempler: ['hvor ligger lagrene?', 'hvilket lager er tættest på sag 2620?'] },
   { navn: 'lager_projekter', titel: 'Projekter', op: 'GET /projekter',
     beskrivelse: 'Projekter, du kan afhente til og booke på, med sagsnummer og hvad du har ude.',
     kort: 'Projekter, du kan afhente til og booke på.', eksempler: ['hvilke sager kan jeg tage værktøj ud til'] },
@@ -488,7 +496,7 @@ export const KATALOG: ToolSpec[] = [
     kort: 'Sammenlign 2–3 scenarier på pris, kapacitet og advarsler.', eksempler: ['hvilken plan giver mest hyldeplads', 'sammenlign plan 4 og 7'],
     beskriv: { ider: '2 eller 3 scenarie-id\'er, kommasepareret, fx «4,7».' } },
   // En POST, der intet skriver: forslaget er deterministisk og læses kun (laesende).
-  { navn: 'scenario_foreslaa_placering', titel: 'Foreslå placeringer', op: 'POST /scenarier/{id}/placering', alias: { id: 'scenarieId' }, laesende: true,
+  { navn: 'scenario_foreslaa_placering', titel: 'Foreslå placeringer', op: 'POST /scenarier/{id}/placering', alias: { id: 'scenarieId' }, laesende: true, ansvarlig: true,
     forbyd: { 'ting.asbest': ASBEST },
     beskrivelse: 'Placeringsmotoren: foreslå en plads i scenariet til hver ting (enhed, forbrugsvare, model eller planlagt ting) med score 0–100 og forklaring, eller grundene til, at der ingen er. Skriver intet; kræver lageransvarlig. Hårde krav brydes aldrig (placeringsregler for særhåndteringsmærker og karantæne, modellens hårde krav til evner, zonernes evner, faste pladser, mål, kapacitet, bæreevne, zoneKrav: skal). Bløde mål: pasform, grebshøjde efter frekvens, tunge ting lavt, grupper samlet, ønsket zone, nær maal.arbejdspunkt og færre flytninger. Giv det, interviewet har givet, pr. ting (frekvens, gruppe, zone, vaegtKg, maal, maerker) eller pr. kategori i profiler, og vægte og stilling i maal. Lav 2–3 bud med forskellige maal eller profiler, og læg de linjer, brugeren tager imod, i kladden med scenario_placer (med forslagets version).',
     kort: 'Placeringsmotoren: forslag til, hvor hver ting skal stå i et scenarie, med score.', eksempler: ['hvor skal elværktøjet stå i plan 4', 'foreslå en indretning af skruerne nær arbejdsbordet'],
@@ -664,8 +672,8 @@ export const KATALOG: ToolSpec[] = [
     beskrivelse: 'Annullér et registreret udtag (id fra lager_ansvarlig_udtag) med en begrundelse; varen lægges tilbage i beholdningen, og et udtag, der ikke er faktureret, kommer ikke med i næste afregning. Er udtaget faktureret (på en bogført afregning), ville annulleringen kreditere det: lageret afviser det gennem MCP (403), og det sker i appen. Vis udtaget, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
     kort: 'Lageransvarlig: annullér et udtag af en forbrugsvare (kræver brugerens ja).', eksempler: ['udtaget af 5 filtre var en fejl, annullér det'],
     beskriv: { udtagId: 'Udtagets id (se lager_ansvarlig_udtag).' } },
-  { navn: 'lager_ansvarlig_periode_opret', titel: 'Lageransvarlig: ny lejeperiode', op: 'POST /ansvarlig/perioder',
-    beskrivelse: 'Tast en lejeperiode for en enhed på et projekt (fra, evt. til): historik eller en udlevering, der ikke blev scannet. Perioden går direkte i afregningen, så tjek først lager_ansvarlig_perioder for enheden, og skriv en begrundelse. Flere enheder på ét projekt: lager_ansvarlig_projekt_tilfoej.' + AFREGNET_VINDUE,
+  { navn: 'lager_ansvarlig_periode_opret', titel: 'Lageransvarlig: ny lejeperiode', op: 'POST /ansvarlig/perioder', bekraeftes: true,
+    beskrivelse: 'Tast en lejeperiode for en enhed på et projekt (fra, evt. til): historik eller en udlevering, der ikke blev scannet. Perioden går direkte i afregningen, så tjek først lager_ansvarlig_perioder for enheden, og skriv en begrundelse. Flere enheder på ét projekt: lager_ansvarlig_projekt_tilfoej.' + AFREGNET_VINDUE + ' Lejen faktureres: vis enhed, projekt og datoer, og send først med bekraeftet: true, når brugeren udtrykkeligt har sagt ja.',
     kort: 'Lageransvarlig: tast en lejeperiode for en enhed på et projekt.', eksempler: ['T-00012 var på sag 2620 fra 1. til 10. september, det blev ikke scannet'] },
   { navn: 'lager_ansvarlig_periode_ret', titel: 'Lageransvarlig: ret lejeperiode', op: 'PUT /ansvarlig/perioder/{id}', alias: { id: 'periodeId' }, bekraeftes: true,
     forbyd: { krediteretManuelt: KREDITER_MANUELT_I_APPEN },
@@ -822,6 +830,10 @@ export const KATALOG: ToolSpec[] = [
     kort: 'Slet en zone i et scenarie.', eksempler: ['fjern 3D-printzonen fra plan 4'],
     beskriv: { zoneId: 'Zonens id (se scenario_hent).' } },
 
+  { navn: 'lager_ansvarlig_lager_adresse', titel: 'Lageransvarlig: lagerets adresse', op: 'PUT /ansvarlig/lagre/{id}/adresse', alias: { id: 'lagerId' }, aabenVerden: true, nullbar: ['adresse', 'koordinater'],
+    beskrivelse: 'Sæt lagerets adresse og/eller punkt på kortet. En ny adresse slås op og bliver til koordinater (adressen sendes til en adresseopslagstjeneste); en uændret adresse beholder sit punkt. koordinater sætter punktet med hånden; null fjerner.',
+    kort: 'Lageransvarlig: sæt et lagers adresse eller punkt på kortet.', eksempler: ['lageret HW ligger på Industrivej 12, 2600 Glostrup'],
+    beskriv: { lagerId: 'Lagerets id (se lager_lagre eller lager_me).' } },
   // ---------------------------------------------------------------- skriv: IoT-enhedernes opsætning og vedligeholdets opgavetyper
   { navn: 'lager_ansvarlig_iot_enhed_opret', titel: 'Lageransvarlig: map en Home Assistant-entitet', op: 'POST /iot/enheder',
     // Kameraer (hvem må se, strømmen) sættes kun op i appen; lageret afviser dem også gennem gatewayen (403).

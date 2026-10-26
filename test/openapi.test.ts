@@ -150,11 +150,15 @@ describe('OpenAPI-øjebliksbilledet', () => {
     for (const s of KATALOG) {
       const b = byg(s);
       const underAnsvarlig = b.ops.some((op) => splitOp(op).sti.startsWith('/ansvarlig/'));
-      expect(b.ansvarlig, s.navn).toBe(s.navn.startsWith('lager_ansvarlig_') || underAnsvarlig);
+      expect(b.ansvarlig, s.navn).toBe(s.ansvarlig ?? (s.navn.startsWith('lager_ansvarlig_') || underAnsvarlig));
       // Et lager_*-værktøj (uden ansvarlig) bruger aldrig en /ansvarlig-rute, undtagen scenarierne.
       if (underAnsvarlig && !s.navn.startsWith('lager_ansvarlig_')) expect(s.navn, s.navn).toMatch(/^scenario_/);
     }
     expect(byg(KATALOG.find((s) => s.navn === 'lager_ansvarlig_model_opret')!).ansvarlig).toBe(true);
+    // Placeringsmotoren kræver lageransvarlig i lageret (/scenarier/{id}/placering, POST); vurderingen (GET) og læsningen gør ikke.
+    expect(byg(KATALOG.find((s) => s.navn === 'scenario_foreslaa_placering')!).ansvarlig).toBe(true);
+    expect(byg(KATALOG.find((s) => s.navn === 'scenario_vurder_placering')!).ansvarlig).toBe(false);
+    expect(KATALOG.filter((s) => s.ansvarlig !== undefined).map((s) => s.navn)).toEqual(['scenario_foreslaa_placering']);
     expect(byg(KATALOG.find((s) => s.navn === 'lager_tjek_ud')!).ansvarlig).toBe(false);
   });
 

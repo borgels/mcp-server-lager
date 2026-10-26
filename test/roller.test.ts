@@ -185,6 +185,19 @@ describe('værktøjslisten følger rollen', () => {
     expect(t.filter((n) => n.startsWith('lager_ansvarlig_'))).toEqual([]);
   });
 
+  it('svarer /me 403, ryddes de cachede roller med det samme', async () => {
+    let status = 200;
+    const fetchFn = vi.fn(async () => (status === 200 ? svar(200, { lagre: [{ ansvarlig: true, medarbejder: true }], ansvarlig: true, kunKiosk: false }) : svar(status, { error: 'Du har ikke adgang til et lager' })));
+    const client = new LagerClient({ baseUrl: 'https://lager.test', apiToken: 'tok', user: 'tidligere@example.com', fetchFn: fetchFn as unknown as typeof fetch, maxRetries: 0 });
+    const cache = new LagerrolleCache(0, 5 * 60_000);
+    expect((await cache.hent(client)).ansvarlig).toBe(true);
+    status = 403;
+    expect(await cache.hent(client)).toEqual(UKENDTE_LAGERROLLER);
+    // En efterfølgende netværksfejl giver ikke de gamle roller tilbage.
+    status = 503;
+    expect(await cache.hent(client)).toEqual(UKENDTE_LAGERROLLER);
+  });
+
   it('de sidst kendte roller bruges højst LAGER_ROLLER_MAKS_ALDER_MS, når /me fejler', async () => {
     let ok = true;
     const fetchFn = vi.fn(async () => (ok ? svar(200, { lagre: [{ ansvarlig: true, medarbejder: true }], ansvarlig: true, kunKiosk: false }) : svar(500, { error: 'nede' })));

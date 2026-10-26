@@ -1982,7 +1982,7 @@
     },
     "/ansvarlig/forbrug/{id}": {
       "delete": {
-        "summary": "Annullér et udtag: varen lægges tilbage i beholdningen. Er udtaget faktureret (linjer på en bogført afregning), krediteres det på næste afregning; gennem MCP-gatewayen afvises det (403), for kreditering sker i appen",
+        "summary": "Annullér et udtag: varen lægges tilbage i beholdningen, og en kladde med udtaget markeres til genberegning. Er udtaget faktureret (linjer på en bogført afregning), krediteres det på næste afregning. Gennem MCP-gatewayen afvises det (403 med afregning), når udtaget står på en afregning, der er bogført, afventer godkendelse eller har en uafklaret bogføring: kreditering sker i appen",
         "parameters": [
           {
             "name": "id",
@@ -2016,7 +2016,7 @@
             "description": "{ ok: true }"
           },
           "403": {
-            "description": "Gennem MCP-gatewayen: udtaget er faktureret på en bogført afregning"
+            "description": "Gennem MCP-gatewayen: udtaget står på en afregning, der er bogført, afventer godkendelse eller er uafklaret (afregning)"
           },
           "409": {
             "description": "Allerede annulleret"
@@ -3829,6 +3829,113 @@
         "responses": {
           "200": {
             "description": "Kø"
+          }
+        }
+      }
+    },
+    "/ansvarlig/lagre/{id}/adresse": {
+      "put": {
+        "operationId": "lager_ansvarlig_lager_adresse",
+        "x-mcp": {
+          "vaerktoej": true
+        },
+        "summary": "Sæt lagerets adresse og/eller punkt på kortet. En ny adresse slås op i backenden og bliver til koordinater; en uændret adresse beholder sit punkt. koordinater sætter punktet med hånden (kilde manuel); null fjerner. Kun lageransvarlig for lageret",
+        "description": "adresse: null fjerner adresse og punkt. Findes adressen ikke, eller svarer opslaget ikke, gemmes den alligevel uden punkt (geokodning: ikke_fundet eller fejl), og punktet kan sættes med koordinater. Postnummer og by fra opslaget udfylder kun tomme felter.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "adresse": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/components/schemas/Lageradresse"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "koordinater": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "breddegrad": {
+                            "type": "number",
+                            "minimum": -90,
+                            "maximum": 90
+                          },
+                          "laengdegrad": {
+                            "type": "number",
+                            "minimum": -180,
+                            "maximum": 180
+                          }
+                        },
+                        "required": [
+                          "breddegrad",
+                          "laengdegrad"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ lager, geokodning, grund? }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lager": {
+                      "$ref": "#/components/schemas/Lagerkort"
+                    },
+                    "geokodning": {
+                      "type": "string",
+                      "enum": [
+                        "fundet",
+                        "ikke_fundet",
+                        "fejl",
+                        "fra",
+                        "uaendret",
+                        "manuel"
+                      ],
+                      "description": "fundet: punktet er sat ud fra adressen; ikke_fundet/fejl: adressen er gemt uden punkt; fra: driften har slået opslaget fra; uaendret: adressen var den samme; manuel: punktet blev sendt med"
+                    },
+                    "grund": {
+                      "type": "string",
+                      "description": "Kun ved fejl: hvorfor opslaget ikke svarede"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Ikke lageransvarlig for lageret, eller ingen adgang til det"
+          },
+          "422": {
+            "description": "Gaden mangler, landet er ikke en kode på to bogstaver, koordinaterne ligger uden for kortet, eller et punkt uden adresse"
           }
         }
       }
@@ -14284,6 +14391,35 @@
         }
       }
     },
+    "/lagre": {
+      "get": {
+        "operationId": "lager_lagre",
+        "x-mcp": {
+          "vaerktoej": true
+        },
+        "summary": "Dine lagre med adresse, punkt på kortet, selskabet bag, udlejerne og antal enheder. Kun lagre, du er medarbejder på (ikke et, du kun er kiosk på)",
+        "responses": {
+          "200": {
+            "description": "{ lagre: Lagerkort[] }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "lagre": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Lagerkort"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/lokationer": {
       "get": {
         "operationId": "lager_lokationer",
@@ -23026,6 +23162,143 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "Lageradresse": {
+        "type": "object",
+        "properties": {
+          "gade": {
+            "type": "string",
+            "description": "Gade og husnummer, fx «Hovedgaden 12»"
+          },
+          "postnr": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "land": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Za-z]{2}$",
+            "description": "ISO 3166-1 alpha-2, fx DK; styrer opslaget (DK: DAWA, ellers Nominatim, efter driftens LAGER_GEOKODNING)"
+          }
+        },
+        "required": [
+          "gade"
+        ]
+      },
+      "Lagerkort": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string"
+          },
+          "navn": {
+            "type": "string"
+          },
+          "adresse": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Lageradresse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "adresseForeslaaet": {
+            "type": "boolean",
+            "description": "Adressen er et forslag ud fra lagerets navn, som ingen har set og gemt endnu; punktet mangler, til den gemmes"
+          },
+          "koordinater": {
+            "oneOf": [
+              {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "breddegrad": {
+                        "type": "number",
+                        "minimum": -90,
+                        "maximum": 90
+                      },
+                      "laengdegrad": {
+                        "type": "number",
+                        "minimum": -180,
+                        "maximum": 180
+                      }
+                    },
+                    "required": [
+                      "breddegrad",
+                      "laengdegrad"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kilde": {
+                        "type": "string",
+                        "enum": [
+                          "geokodet",
+                          "manuel"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "WGS84; null = ikke på kortet endnu"
+          },
+          "selskab": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "navn": {
+                "type": "string"
+              }
+            }
+          },
+          "udlejere": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "navn": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Selskaberne, der udlejer fra lageret (i dag selskabet bag lageret)"
+          },
+          "enheder": {
+            "type": "integer",
+            "description": "Enheder på lageret (ikke solgte eller fejlregistrerede)"
+          },
+          "kanRette": {
+            "type": "boolean",
+            "description": "Du er lageransvarlig og må rette adressen"
           }
         }
       }

@@ -1,4 +1,4 @@
-import type { LagerClient } from './client.js';
+import { LagerApiError, type LagerClient } from './client.js';
 import type { Moduler } from './moduler.js';
 
 /**
@@ -17,7 +17,8 @@ import type { Moduler } from './moduler.js';
  *     LAGER_ENABLE_WRITES=true er stadig hovedafbryderen: uden den skriver ingen.
  *
  *  2. Lagerets egne roller fra /me (vaerktoejsbruger, lageransvarlig, kiosk pr. lager).
- *     Den lageransvarliges værktøjer (lager_ansvarlig_*, scenario_* og alt under /ansvarlig)
+ *     Den lageransvarliges værktøjer (Bygget.ansvarlig: lager_ansvarlig_*, alt under /ansvarlig, og det, kataloget
+ *     markerer, fx placeringsmotoren; scenariernes læsning er alles)
  *     vises kun for den, der er lageransvarlig på mindst ét lager; en konto, der kun er kiosk,
  *     ser kun lager_me. Det er synlighed og en ekstra vagt: lageret afviser selv (403).
  */
@@ -129,7 +130,8 @@ export function lagerrollerFra(me: Me | undefined | null): Lagerroller | null {
  * bygges pr. HTTP-kald, og en rolle, personen mister i lageret, skal hurtigt forsvinde her.
  * Et opslag giver også installationens moduler (samme /me), så ModulCache ikke spørger igen.
  *
- * Svarer /me ikke (eller uden lagre), bruges de sidst kendte roller højst LAGER_ROLLER_MAKS_ALDER_MS
+ * Svarer /me 401 eller 403, ryddes personens roller med det samme (fail-closed). Kan /me ikke nås
+ * (eller svarer uden lagre), bruges de sidst kendte roller højst LAGER_ROLLER_MAKS_ALDER_MS
  * (standard 5 minutter) fra det svar, de kom fra; derefter, og når intet er kendt,
  * UKENDTE_LAGERROLLER (fail-closed for den lageransvarliges værktøjer).
  */
@@ -159,8 +161,15 @@ export class LagerrolleCache {
           // Et svar uden lagre caches ikke: næste kald spørger igen.
           return roller ?? reserve();
         })
-        // Kan /me ikke nås (eller svarer 403: ingen lagre): de sidst kendte roller en kort tid, så fail-closed.
-        .catch(() => reserve())
+        // Afviser lageret personen (401/403: ingen lagre, eller ukendt), er de cachede roller forkerte nu:
+        // de ryddes med det samme. Kan /me ikke nås, de sidst kendte roller en kort tid, så fail-closed.
+        .catch((e: unknown) => {
+          if (e instanceof LagerApiError && (e.status === 401 || e.status === 403)) {
+            this.data.delete(noegle);
+            return UKENDTE_LAGERROLLER;
+          }
+          return reserve();
+        })
         .finally(() => this.igang.delete(noegle));
       this.igang.set(noegle, p);
     }
